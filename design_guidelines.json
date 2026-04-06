@@ -1,0 +1,141 @@
+{
+  "project_name": "NexCRM",
+  "theme": "dark",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) - Modified for Premium Developer SaaS",
+  "design_philosophy": "A premium, vendable SaaS dashboard inspired by Linear, Vercel, Stripe, and Supabase. Dark mode is default. The design must feel high-end, extremely precise, and use subtle contrasts rather than bright colors. Emphasize extremely thin borders (1px), subtle glowing highlights, and dense, functional grid layouts.",
+  "typography": {
+    "fonts": {
+      "headings": "Outfit, sans-serif",
+      "body": "Plus Jakarta Sans, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-medium tracking-tighter leading-none text-white",
+      "h2": "text-2xl sm:text-3xl font-medium tracking-tight leading-tight text-white",
+      "h3": "text-xl font-medium tracking-tight text-zinc-100",
+      "h4": "text-sm sm:text-base font-medium tracking-wide text-zinc-300 uppercase",
+      "body_large": "text-base leading-relaxed text-zinc-400",
+      "body": "text-sm leading-relaxed text-zinc-400",
+      "small": "text-xs font-medium text-zinc-500",
+      "micro": "text-[10px] font-bold uppercase tracking-widest text-zinc-600"
+    },
+    "rules": [
+      "No generic 'Inter' or 'Roboto'.",
+      "Use extremely tight tracking on large headings (-0.02em to -0.04em).",
+      "Use uppercase with wide tracking for overlines and small table headers."
+    ]
+  },
+  "colors": {
+    "background": {
+      "app": "#000000",
+      "surface": "#0A0A0A",
+      "surface_hover": "#111111",
+      "card": "#0A0A0A",
+      "modal": "#111111",
+      "sidebar": "#000000"
+    },
+    "text": {
+      "primary": "#EDEDED",
+      "secondary": "#A1A1AA",
+      "tertiary": "#71717A",
+      "disabled": "#52525B"
+    },
+    "borders": {
+      "subtle": "rgba(255, 255, 255, 0.08)",
+      "strong": "rgba(255, 255, 255, 0.15)",
+      "glow": "rgba(255, 255, 255, 0.4)"
+    },
+    "accents": {
+      "primary": "#EDEDED",
+      "primary_hover": "#FFFFFF",
+      "primary_text_on_bg": "#000000",
+      "blue_glow": "#2563EB",
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "danger": "#EF4444"
+    },
+    "rules": [
+      "Avoid pure `#000000` text on light surfaces. Never use pure white backgrounds in dark mode.",
+      "Primary actions use white backgrounds with black text for stark contrast.",
+      "Use extremely subtle tinted grays for neutral backgrounds."
+    ]
+  },
+  "layout": {
+    "grid_system": "The 'Control Room' Grid",
+    "spacing": {
+      "page_padding": "p-6 md:p-8",
+      "card_padding": "p-5 md:p-6",
+      "section_gap": "gap-8 md:gap-12",
+      "component_gap": "gap-4 md:gap-6"
+    },
+    "surfaces": {
+      "cards": "bg-[#0A0A0A] border border-white/10 rounded-xl shadow-none overflow-hidden",
+      "cards_hover": "hover:bg-[#111111] hover:border-white/20 transition-all duration-300",
+      "glassmorphism": "bg-black/60 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
+      "sidebar": "border-r border-white/10 bg-[#000000]"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-white text-black hover:bg-zinc-200 font-medium rounded-lg px-4 py-2 transition-colors",
+      "secondary": "bg-[#111111] text-white border border-white/10 hover:bg-[#1A1A1A] hover:border-white/20 font-medium rounded-lg px-4 py-2 transition-all",
+      "ghost": "text-zinc-400 hover:text-white hover:bg-white/5 rounded-lg px-4 py-2 transition-colors"
+    },
+    "inputs": {
+      "default": "bg-[#0A0A0A] border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:border-white/30 focus:ring-1 focus:ring-white/30 transition-all px-3 py-2",
+      "search": "bg-[#111111] border-none rounded-lg text-white placeholder-zinc-500 focus:ring-1 focus:ring-white/20 pl-10"
+    },
+    "tables": {
+      "header": "text-xs uppercase tracking-wider text-zinc-500 font-semibold border-b border-white/10 pb-3",
+      "row": "border-b border-white/5 hover:bg-white/[0.02] transition-colors",
+      "cell": "py-4 text-sm text-zinc-300"
+    },
+    "badges": {
+      "default": "bg-[#111111] border border-white/10 text-zinc-300 px-2 py-1 rounded-md text-xs font-medium",
+      "active": "bg-blue-500/10 border border-blue-500/20 text-blue-400 px-2 py-1 rounded-md text-xs font-medium"
+    },
+    "charts": {
+      "style": "Minimalist area/line charts.",
+      "grid": "Use dashed lines with 0.1 opacity for horizontal guides. No vertical grid lines.",
+      "tooltip": "Glassmorphism tooltip: bg-black/80 backdrop-blur-md border border-white/10 rounded-lg shadow-xl",
+      "colors": ["#FFFFFF", "#A1A1AA", "#2563EB"]
+    }
+  },
+  "motion": {
+    "hover": "Subtle border lighting and 1-2% background lightening. No heavy lifting or deep shadows.",
+    "transitions": "transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+    "page_load": "Staggered fade-in and slight slide-up (translate-y-2) for dashboard widgets."
+  },
+  "media": {
+    "images": {
+      "login_background": {
+        "url": "https://images.unsplash.com/photo-1640346876473-f76a73c71539?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGRhcmslMjBnZW9tZXRyaWMlMjBtaW5pbWFsJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3NzU1MDI4MDN8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract dark geometric minimal background for the login page hero section."
+      },
+      "avatar_1": {
+        "url": "https://images.unsplash.com/photo-1689600944138-da3b150d9cb8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBvcnRyYWl0JTIwaGVhZHNob3R8ZW58MHx8fHwxNzc1NTAyNzkwfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Professional business headshot 1"
+      },
+      "avatar_2": {
+        "url": "https://images.unsplash.com/photo-1576558656222-ba66febe3dec?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBvcnRyYWl0JTIwaGVhZHNob3R8ZW58MHx8fHwxNzc1NTAyNzkwfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Professional business headshot 2"
+      },
+      "avatar_3": {
+        "url": "https://images.pexels.com/photos/14585727/pexels-photo-14585727.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Professional business headshot 3"
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "You are building NexCRM. The overall aesthetic must perfectly match a top-tier developer tooling dashboard (Linear, Vercel, Stripe).",
+    "Use Phosphor Icons (@phosphor-icons/react) with a duotone or bold weight to match the premium tech aesthetic.",
+    "Implement the 'Tracing Beam' or extremely subtle border hovers for dashboard KPI cards.",
+    "All interactive elements (buttons, inputs, links) MUST have a `data-testid` attribute in kebab-case (e.g., `data-testid='login-submit-button'`).",
+    "Do not use generic Shadcn cards out-of-the-box without modifying them to fit the flat, thin-bordered, dark background style.",
+    "For the Kanban board, use a very dense layout with flat cards. The board background should be `#000000` and the cards `#0A0A0A`.",
+    "Ensure all text has sufficient contrast. Use `#EDEDED` (zinc-200) for primary text, not pure white.",
+    "Use Recharts for the analytics. The charts must be extremely minimal. No thick grid lines. Use an area chart with a gradient fill going from solid to transparent at the bottom.",
+    "Install `lucide-react` or `@phosphor-icons/react` for icons if not present. Use `@phosphor-icons/react` natively.",
+    "The login page must use the `login_background` image with a very heavy dark overlay or glassmorphism panel for the login form."
+  ]
+}
