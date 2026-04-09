@@ -28,6 +28,7 @@ ANALYST_EMAIL = os.environ.get("ANALYST_EMAIL", "marcus.johnson@nexcrm.io")
 ANALYST_PWD = os.environ.get("ANALYST_PASSWORD", "Analyst@123!")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MEMORY_DIR = PROJECT_ROOT / "memory"
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
 
 # ─── MongoDB ───────────────────────────────────────────────────────────────────
 client = AsyncIOMotorClient(MONGO_URL)
@@ -208,9 +209,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="NexCRM API", lifespan=lifespan)
 
+allowed_origins = ["*"] if CORS_ORIGINS.strip() == "*" else [
+    origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
