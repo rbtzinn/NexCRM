@@ -792,10 +792,11 @@ async def setup_db():
                 "created_at": created, "updated_at": created,
             })
 
-    # Write test credentials in the local project memory directory.
-    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-    with (MEMORY_DIR / "test_credentials.md").open("w", encoding="utf-8") as f:
-        f.write(f"""# NexCRM Test Credentials
+    # Best-effort local developer aid; skip silently on read-only hosts like Vercel.
+    try:
+        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        with (MEMORY_DIR / "test_credentials.md").open("w", encoding="utf-8") as f:
+            f.write(f"""# NexCRM Test Credentials
 
 ## Admin User
 - Email: {ADMIN_EMAIL}
@@ -827,3 +828,5 @@ async def setup_db():
 - GET  /api/dashboard/revenue
 - GET  /api/dashboard/pipeline
 """)
+    except OSError:
+        pass
