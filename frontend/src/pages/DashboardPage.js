@@ -9,6 +9,7 @@ import {
   TrendingUp, TrendingDown, Users, Handshake,
   DollarSign, Target, ArrowRight,
 } from "lucide-react";
+import { useI18n } from "../context/I18nContext";
 import { dashboardService } from "../services/dashboardService";
 import StatusBadge from "../components/common/StatusBadge";
 import { Skeleton } from "../components/ui/skeleton";
@@ -72,12 +73,12 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-const PipelineTooltip = ({ active, payload, label }) => {
+const PipelineTooltip = ({ active, payload, label, t }) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-popover border border-border rounded-lg px-3 py-2 shadow-xl">
       <p className="text-xs text-muted-foreground mb-1">{label}</p>
-      <p className="text-sm font-semibold text-foreground">{payload[0]?.value} deals</p>
+      <p className="text-sm font-semibold text-foreground">{t("dashboard.dealsCount", { count: payload[0]?.value || 0 })}</p>
     </div>
   );
 };
@@ -92,6 +93,7 @@ const chartBarActive = "hsl(var(--foreground) / 0.24)";
 const chartDot = "hsl(var(--foreground))";
 
 export default function DashboardPage() {
+  const { t, translateMonthShort, translateStatus } = useI18n();
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: () => dashboardService.stats().then((r) => r.data),
@@ -117,30 +119,41 @@ export default function DashboardPage() {
     queryFn: () => dashboardService.activity().then((r) => r.data),
   });
 
+  const revenueChartData = revenue.map((item) => ({
+    ...item,
+    short: translateMonthShort(item.short),
+  }));
+
+  const pipelineChartData = pipeline.map((item) => ({
+    ...item,
+    label: translateStatus(item.stage),
+  }));
+
   const kpis = [
     {
       title: "Total Revenue",
+      title: t("dashboard.totalRevenue"),
       value: fmt(stats?.total_revenue || 0),
       trend: stats?.mom_growth,
-      trendLabel: "vs last month",
+      trendLabel: t("dashboard.vsLastMonth"),
       icon: DollarSign,
     },
     {
-      title: "Active Deals",
+      title: t("dashboard.activeDeals"),
       value: stats?.active_deals ?? "--",
-      trendLabel: "in pipeline",
+      trendLabel: t("dashboard.inPipeline"),
       icon: Handshake,
     },
     {
-      title: "Total Customers",
+      title: t("dashboard.totalCustomers"),
       value: stats?.total_customers ?? "--",
-      trendLabel: "total contacts",
+      trendLabel: t("dashboard.totalContacts"),
       icon: Users,
     },
     {
-      title: "Win Rate",
+      title: t("dashboard.winRate"),
       value: `${stats?.win_rate ?? 0}%`,
-      trendLabel: "closed deals",
+      trendLabel: t("dashboard.closedDeals"),
       icon: Target,
       accent: true,
     },
@@ -161,15 +174,15 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5" data-testid="revenue-chart">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="font-outfit text-base font-semibold text-foreground">Revenue</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Last 12 months</p>
+              <h2 className="font-outfit text-base font-semibold text-foreground">{t("dashboard.revenue")}</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">{t("dashboard.last12Months")}</p>
             </div>
           </div>
           {revLoading ? (
             <Skeleton className="h-52 w-full rounded" />
           ) : (
             <ResponsiveContainer width="100%" height={210}>
-              <AreaChart data={revenue} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <AreaChart data={revenueChartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={chartFill} stopOpacity={1} />
@@ -212,14 +225,14 @@ export default function DashboardPage() {
         {/* Pipeline Chart */}
         <div className="bg-card border border-border rounded-xl p-5" data-testid="pipeline-chart">
           <div className="mb-6">
-            <h2 className="font-outfit text-base font-semibold text-foreground">Pipeline</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Deals by stage</p>
+            <h2 className="font-outfit text-base font-semibold text-foreground">{t("dashboard.pipeline")}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("dashboard.dealsByStage")}</p>
           </div>
           {pipeLoading ? (
             <Skeleton className="h-52 w-full rounded" />
           ) : (
             <ResponsiveContainer width="100%" height={210}>
-              <BarChart data={pipeline} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <BarChart data={pipelineChartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid
                   strokeDasharray="3 3"
                   stroke={chartGrid}
@@ -236,7 +249,7 @@ export default function DashboardPage() {
                   axisLine={false}
                   tickLine={false}
                 />
-                <Tooltip content={<PipelineTooltip />} cursor={{ fill: chartCursor }} />
+                <Tooltip content={<PipelineTooltip t={t} />} cursor={{ fill: chartCursor }} />
                 <Bar
                   dataKey="count"
                   radius={[4, 4, 0, 0]}
@@ -254,12 +267,12 @@ export default function DashboardPage() {
         {/* Recent Deals */}
         <div className="lg:col-span-2 bg-card border border-border rounded-xl overflow-hidden" data-testid="recent-deals">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="font-outfit text-sm font-semibold text-foreground">Recent Deals</h2>
+            <h2 className="font-outfit text-sm font-semibold text-foreground">{t("dashboard.recentDeals")}</h2>
             <Link
               to="/deals"
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
             >
-              View all <ArrowRight className="w-3 h-3" />
+              {t("common.viewAll")} <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
           {dealsLoading ? (
@@ -274,13 +287,13 @@ export default function DashboardPage() {
                 <thead>
                   <tr className="border-b border-border/50">
                     <th className="text-left px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-                      Deal
+                      {t("dashboard.dealColumn")}
                     </th>
                     <th className="text-left px-4 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold hidden sm:table-cell">
-                      Stage
+                      {t("dashboard.stageColumn")}
                     </th>
                     <th className="text-right px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-                      Value
+                      {t("dashboard.valueColumn")}
                     </th>
                   </tr>
                 </thead>
@@ -310,17 +323,17 @@ export default function DashboardPage() {
         {/* Activity Feed */}
         <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="activity-feed">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="font-outfit text-sm font-semibold text-foreground">Activity</h2>
+            <h2 className="font-outfit text-sm font-semibold text-foreground">{t("dashboard.activity")}</h2>
             <Link
               to="/tasks"
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
             >
-              View all <ArrowRight className="w-3 h-3" />
+              {t("common.viewAll")} <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
           <div className="p-4 space-y-3">
             {activity.length === 0 && (
-              <p className="text-xs text-muted-foreground text-center py-6">No recent activity</p>
+              <p className="text-xs text-muted-foreground text-center py-6">{t("dashboard.noRecentActivity")}</p>
             )}
             {activity.map((task) => (
               <div

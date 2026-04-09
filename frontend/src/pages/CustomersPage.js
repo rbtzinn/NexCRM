@@ -1,43 +1,48 @@
-import React, { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Plus, Search, Filter, Users, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { Plus, Search, Users, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { customersService } from "../services/customersService";
 import { useAuth } from "../context/AuthContext";
+import { useI18n } from "../context/I18nContext";
 import PageHeader from "../components/common/PageHeader";
 import StatusBadge from "../components/common/StatusBadge";
 import EmptyState from "../components/common/EmptyState";
 import ConfirmDialog from "../components/common/ConfirmDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Skeleton } from "../components/ui/skeleton";
-
-const schema = z.object({
-  name: z.string().min(1, "Name is required"),
-  company: z.string().min(1, "Company is required"),
-  email: z.string().email("Enter a valid email").optional().or(z.literal("")),
-  phone: z.string().optional(),
-  industry: z.string().optional(),
-  status: z.enum(["lead", "prospect", "customer", "churned"]),
-  value: z.coerce.number().min(0),
-  source: z.string().optional(),
-  notes: z.string().optional(),
-});
 
 const industries = ["Technology", "Healthcare", "Finance", "Marketing", "Manufacturing", "Consulting", "Energy", "Artificial Intelligence", "Sustainability", "Other"];
 const sources = ["Website", "Referral", "Conference", "Cold Outreach", "LinkedIn", "Partner", "Webinar", "Trade Show", "Other"];
 const statuses = ["lead", "prospect", "customer", "churned"];
 
+const buildSchema = (t) =>
+  z.object({
+    name: z.string().min(1, t("customers.errors.nameRequired")),
+    company: z.string().min(1, t("customers.errors.companyRequired")),
+    email: z.string().email(t("customers.errors.invalidEmail")).optional().or(z.literal("")),
+    phone: z.string().optional(),
+    industry: z.string().optional(),
+    status: z.enum(["lead", "prospect", "customer", "churned"]),
+    value: z.coerce.number().min(0),
+    source: z.string().optional(),
+    notes: z.string().optional(),
+  });
+
 function CustomerForm({ customer, onClose, onSaved }) {
-  const { user } = useAuth();
+  const { t, translateIndustry, translateSource, translateApiError } = useI18n();
   const [loading, setLoading] = useState(false);
   const isEdit = !!customer;
 
-  const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm({
-    resolver: zodResolver(schema),
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm({
+    resolver: zodResolver(buildSchema(t)),
     defaultValues: {
       name: customer?.name || "",
       company: customer?.company || "",
@@ -56,14 +61,14 @@ function CustomerForm({ customer, onClose, onSaved }) {
     try {
       if (isEdit) {
         await customersService.update(customer.id, data);
-        toast.success("Customer updated");
+        toast.success(t("customers.customerUpdated"));
       } else {
         await customersService.create(data);
-        toast.success("Customer created");
+        toast.success(t("customers.customerCreated"));
       }
       onSaved();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Something went wrong");
+      toast.error(translateApiError(err.response?.data?.detail));
     } finally {
       setLoading(false);
     }
@@ -76,65 +81,82 @@ function CustomerForm({ customer, onClose, onSaved }) {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-2">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className={labelCls}>Name *</label>
-          <input {...register("name")} placeholder="Full name" className={inputCls} data-testid="customer-name-input" />
+          <label className={labelCls}>{t("customers.form.name")} *</label>
+          <input {...register("name")} placeholder={t("customers.form.fullName")} className={inputCls} data-testid="customer-name-input" />
           {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name.message}</p>}
         </div>
         <div>
-          <label className={labelCls}>Company *</label>
-          <input {...register("company")} placeholder="Company name" className={inputCls} data-testid="customer-company-input" />
+          <label className={labelCls}>{t("customers.form.company")} *</label>
+          <input {...register("company")} placeholder={t("customers.form.companyName")} className={inputCls} data-testid="customer-company-input" />
           {errors.company && <p className="text-red-400 text-xs mt-1">{errors.company.message}</p>}
         </div>
       </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className={labelCls}>Email</label>
-          <input {...register("email")} type="email" placeholder="email@company.com" className={inputCls} />
+          <label className={labelCls}>{t("customers.form.email")}</label>
+          <input {...register("email")} type="email" placeholder={t("customers.form.emailPlaceholder")} className={inputCls} />
         </div>
         <div>
-          <label className={labelCls}>Phone</label>
-          <input {...register("phone")} placeholder="+1 (555) 000-0000" className={inputCls} />
+          <label className={labelCls}>{t("customers.form.phone")}</label>
+          <input {...register("phone")} placeholder={t("customers.form.phonePlaceholder")} className={inputCls} />
         </div>
       </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className={labelCls}>Status</label>
+          <label className={labelCls}>{t("customers.form.status")}</label>
           <select {...register("status")} className={inputCls} data-testid="customer-status-select">
-            {statuses.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+            {statuses.map((status) => (
+              <option key={status} value={status}>
+                {t(`status.${status}`)}
+              </option>
+            ))}
           </select>
         </div>
         <div>
-          <label className={labelCls}>Value ($)</label>
+          <label className={labelCls}>{t("customers.form.value")}</label>
           <input {...register("value")} type="number" min="0" placeholder="0" className={inputCls} />
         </div>
       </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className={labelCls}>Industry</label>
+          <label className={labelCls}>{t("customers.form.industry")}</label>
           <select {...register("industry")} className={inputCls}>
-            <option value="">Select industry</option>
-            {industries.map(i => <option key={i} value={i}>{i}</option>)}
+            <option value="">{t("customers.form.selectIndustry")}</option>
+            {industries.map((industry) => (
+              <option key={industry} value={industry}>
+                {translateIndustry(industry)}
+              </option>
+            ))}
           </select>
         </div>
         <div>
-          <label className={labelCls}>Source</label>
+          <label className={labelCls}>{t("customers.form.source")}</label>
           <select {...register("source")} className={inputCls}>
-            <option value="">Select source</option>
-            {sources.map(s => <option key={s} value={s}>{s}</option>)}
+            <option value="">{t("customers.form.selectSource")}</option>
+            {sources.map((source) => (
+              <option key={source} value={source}>
+                {translateSource(source)}
+              </option>
+            ))}
           </select>
         </div>
       </div>
+
       <div>
-        <label className={labelCls}>Notes</label>
-        <textarea {...register("notes")} rows={2} placeholder="Add notes..." className={`${inputCls} resize-none`} />
+        <label className={labelCls}>{t("customers.form.notes")}</label>
+        <textarea {...register("notes")} rows={2} placeholder={t("customers.form.addNotes")} className={`${inputCls} resize-none`} />
       </div>
+
       <div className="flex gap-2 pt-2">
         <button type="button" onClick={onClose} className="flex-1 bg-muted border border-border text-sm font-medium text-muted-foreground rounded-lg py-2 hover:text-foreground transition-colors">
-          Cancel
+          {t("common.cancel")}
         </button>
         <button type="submit" disabled={loading} data-testid="customer-save-button" className="flex-1 bg-foreground text-background text-sm font-semibold rounded-lg py-2 hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-60">
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-          {loading ? "Saving..." : isEdit ? "Update" : "Create"}
+          {loading ? t("common.saving") : isEdit ? t("common.update") : t("common.create")}
         </button>
       </div>
     </form>
@@ -143,6 +165,7 @@ function CustomerForm({ customer, onClose, onSaved }) {
 
 export default function CustomersPage() {
   const { user } = useAuth();
+  const { t, locale, translateIndustry, translateSource } = useI18n();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -156,96 +179,131 @@ export default function CustomersPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["customers", { page, search, status: statusFilter, industry: industryFilter }],
     queryFn: () =>
-      customersService.list({ page, limit: 12, search: search || undefined, status: statusFilter || undefined, industry: industryFilter || undefined }).then((r) => r.data),
+      customersService.list({
+        page,
+        limit: 12,
+        search: search || undefined,
+        status: statusFilter || undefined,
+        industry: industryFilter || undefined,
+      }).then((response) => response.data),
     keepPreviousData: true,
   });
 
   const customers = data?.data || [];
   const totalPages = data?.pages || 1;
+  const canManage = user?.role !== "analyst";
 
-  const handleEdit = (c) => { setEditCustomer(c); setModalOpen(true); };
-  const handleAdd = () => { setEditCustomer(null); setModalOpen(true); };
-  const handleSaved = () => { setModalOpen(false); queryClient.invalidateQueries({ queryKey: ["customers"] }); };
+  const handleEdit = (currentCustomer) => {
+    setEditCustomer(currentCustomer);
+    setModalOpen(true);
+  };
+
+  const handleAdd = () => {
+    setEditCustomer(null);
+    setModalOpen(true);
+  };
+
+  const handleSaved = () => {
+    setModalOpen(false);
+    queryClient.invalidateQueries({ queryKey: ["customers"] });
+  };
 
   const handleDelete = async () => {
     if (!deleteId) return;
     setDeleteLoading(true);
     try {
       await customersService.delete(deleteId);
-      toast.success("Customer deleted");
+      toast.success(t("customers.customerDeleted"));
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setDeleteId(null);
     } catch {
-      toast.error("Failed to delete");
+      toast.error(t("customers.failedToDelete"));
     } finally {
       setDeleteLoading(false);
     }
   };
 
-  const canManage = user?.role !== "analyst";
-
   return (
     <div>
       <PageHeader
-        title="Customers"
-        description={`${data?.total ?? 0} total customers`}
+        title={t("customers.title")}
+        description={t("customers.description", { total: data?.total ?? 0 })}
         badge={data?.total ? String(data.total) : undefined}
         actions={
           canManage && (
             <button onClick={handleAdd} data-testid="add-customer-button" className="flex items-center gap-2 bg-foreground text-background text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">
-              <Plus className="w-4 h-4" /> Add Customer
+              <Plus className="w-4 h-4" /> {t("customers.addCustomer")}
             </button>
           )
         }
       />
 
-      {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search customers..."
+            placeholder={t("customers.searchPlaceholder")}
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
             data-testid="customer-search"
             className="w-full bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring transition-all"
           />
         </div>
+
         <select
           value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          onChange={(event) => {
+            setStatusFilter(event.target.value);
+            setPage(1);
+          }}
           data-testid="customer-status-filter"
           className="bg-muted border border-border rounded-lg text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
         >
-          <option value="">All Statuses</option>
-          {statuses.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+          <option value="">{t("customers.allStatuses")}</option>
+          {statuses.map((status) => (
+            <option key={status} value={status}>
+              {t(`status.${status}`)}
+            </option>
+          ))}
         </select>
+
         <select
           value={industryFilter}
-          onChange={(e) => { setIndustryFilter(e.target.value); setPage(1); }}
+          onChange={(event) => {
+            setIndustryFilter(event.target.value);
+            setPage(1);
+          }}
           data-testid="customer-industry-filter"
           className="bg-muted border border-border rounded-lg text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
         >
-          <option value="">All Industries</option>
-          {industries.map(i => <option key={i} value={i}>{i}</option>)}
+          <option value="">{t("customers.allIndustries")}</option>
+          {industries.map((industry) => (
+            <option key={industry} value={industry}>
+              {translateIndustry(industry)}
+            </option>
+          ))}
         </select>
       </div>
 
-      {/* Table */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         {isLoading ? (
           <div className="p-6 space-y-3">
-            {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-12 w-full rounded" />)}
+            {[1, 2, 3, 4, 5].map((item) => (
+              <Skeleton key={item} className="h-12 w-full rounded" />
+            ))}
           </div>
         ) : isError ? (
-          <div className="py-16 text-center text-sm text-muted-foreground">Failed to load customers</div>
+          <div className="py-16 text-center text-sm text-muted-foreground">{t("customers.failedToLoad")}</div>
         ) : customers.length === 0 ? (
           <EmptyState
             icon={Users}
-            title="No customers yet"
-            description={search || statusFilter ? "No customers match your filters." : "Add your first customer to get started."}
-            action={canManage && <button onClick={handleAdd} className="bg-foreground text-background text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">Add Customer</button>}
+            title={t("customers.noCustomersYet")}
+            description={search || statusFilter ? t("customers.noCustomersFiltered") : t("customers.noCustomersDescription")}
+            action={canManage && <button onClick={handleAdd} className="bg-foreground text-background text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">{t("customers.addCustomer")}</button>}
           />
         ) : (
           <>
@@ -253,42 +311,42 @@ export default function CustomersPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
-                    {["Customer", "Company", "Status", "Value", "Industry", "Source", "Actions"].map(h => (
-                      <th key={h} className="text-left px-4 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold first:pl-5 last:pr-5 last:text-right">
-                        {h}
+                    {[t("customers.table.customer"), t("customers.table.company"), t("customers.table.status"), t("customers.table.value"), t("customers.table.industry"), t("customers.table.source"), t("customers.table.actions")].map((heading) => (
+                      <th key={heading} className="text-left px-4 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold first:pl-5 last:pr-5 last:text-right">
+                        {heading}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {customers.map((c) => (
-                    <tr key={c.id} className="border-b border-border/40 hover:bg-muted/20 transition-colors" data-testid="customer-row">
+                  {customers.map((customer) => (
+                    <tr key={customer.id} className="border-b border-border/40 hover:bg-muted/20 transition-colors" data-testid="customer-row">
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2.5">
                           <div className="w-7 h-7 bg-muted rounded-full flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs font-semibold text-foreground/70">{c.name.charAt(0)}</span>
+                            <span className="text-xs font-semibold text-foreground/70">{customer.name.charAt(0)}</span>
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-foreground">{c.name}</p>
-                            <p className="text-xs text-muted-foreground">{c.email}</p>
+                            <p className="text-sm font-medium text-foreground">{customer.name}</p>
+                            <p className="text-xs text-muted-foreground">{customer.email}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 text-sm text-foreground/80">{c.company}</td>
-                      <td className="px-4 py-3.5"><StatusBadge status={c.status} /></td>
+                      <td className="px-4 py-3.5 text-sm text-foreground/80">{customer.company}</td>
+                      <td className="px-4 py-3.5"><StatusBadge status={customer.status} /></td>
                       <td className="px-4 py-3.5 text-sm font-semibold text-foreground">
-                        {c.value > 0 ? `$${c.value.toLocaleString()}` : "—"}
+                        {customer.value > 0 ? `$${customer.value.toLocaleString(locale)}` : t("common.noValue")}
                       </td>
-                      <td className="px-4 py-3.5 text-sm text-foreground/80">{c.industry || "—"}</td>
-                      <td className="px-4 py-3.5 text-sm text-foreground/80">{c.source || "—"}</td>
+                      <td className="px-4 py-3.5 text-sm text-foreground/80">{customer.industry ? translateIndustry(customer.industry) : t("common.noValue")}</td>
+                      <td className="px-4 py-3.5 text-sm text-foreground/80">{customer.source ? translateSource(customer.source) : t("common.noValue")}</td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center gap-1 justify-end">
                           {canManage && (
                             <>
-                              <button onClick={() => handleEdit(c)} data-testid="edit-customer-button" className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors">
+                              <button onClick={() => handleEdit(customer)} data-testid="edit-customer-button" className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors">
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
-                              <button onClick={() => setDeleteId(c.id)} data-testid="delete-customer-button" className="p-1.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/5 rounded-md transition-colors">
+                              <button onClick={() => setDeleteId(customer.id)} data-testid="delete-customer-button" className="p-1.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/5 rounded-md transition-colors">
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </>
@@ -301,17 +359,16 @@ export default function CustomersPage() {
               </table>
             </div>
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex items-center justify-between px-5 py-3.5 border-t border-border">
                 <p className="text-xs text-muted-foreground">
-                  Page {page} of {totalPages} · {data?.total} total
+                  {t("customers.pagination", { page, totalPages, total: data?.total ?? 0 })}
                 </p>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-40 hover:bg-muted rounded-md transition-colors" data-testid="prev-page">
+                  <button onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-40 hover:bg-muted rounded-md transition-colors" data-testid="prev-page">
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-40 hover:bg-muted rounded-md transition-colors" data-testid="next-page">
+                  <button onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages} className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-40 hover:bg-muted rounded-md transition-colors" data-testid="next-page">
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -321,24 +378,22 @@ export default function CustomersPage() {
         )}
       </div>
 
-      {/* Create/Edit Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="bg-popover border border-border max-w-lg" data-testid="customer-modal">
           <DialogHeader>
             <DialogTitle className="font-outfit text-base font-semibold">
-              {editCustomer ? "Edit Customer" : "New Customer"}
+              {editCustomer ? t("customers.editCustomer") : t("customers.newCustomer")}
             </DialogTitle>
           </DialogHeader>
           <CustomerForm customer={editCustomer} onClose={() => setModalOpen(false)} onSaved={handleSaved} />
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirm */}
       <ConfirmDialog
         open={!!deleteId}
-        onOpenChange={(o) => !o && setDeleteId(null)}
-        title="Delete Customer"
-        description="This will permanently delete the customer and all associated data."
+        onOpenChange={(open) => !open && setDeleteId(null)}
+        title={t("customers.deleteCustomer")}
+        description={t("customers.deleteCustomerDescription")}
         onConfirm={handleDelete}
         loading={deleteLoading}
       />

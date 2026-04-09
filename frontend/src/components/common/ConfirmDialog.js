@@ -1,4 +1,5 @@
 import React from "react";
+import { useI18n } from "../../context/I18nContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,13 +14,15 @@ import {
 export default function ConfirmDialog({
   open,
   onOpenChange,
-  title = "Are you sure?",
-  description = "This action cannot be undone.",
-  confirmLabel = "Delete",
+  title,
+  description,
+  confirmLabel,
   onConfirm,
   loading = false,
   variant = "danger",
 }) {
+  const { t } = useI18n();
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent
@@ -28,10 +31,10 @@ export default function ConfirmDialog({
       >
         <AlertDialogHeader>
           <AlertDialogTitle className="text-foreground text-base font-semibold font-outfit">
-            {title}
+            {title || t("confirmDialog.title")}
           </AlertDialogTitle>
           <AlertDialogDescription className="text-muted-foreground text-sm">
-            {description}
+            {description || t("confirmDialog.description")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -39,7 +42,7 @@ export default function ConfirmDialog({
             data-testid="confirm-dialog-cancel"
             className="bg-transparent border-border text-muted-foreground hover:text-foreground hover:bg-accent"
           >
-            Cancel
+            {t("confirmDialog.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
@@ -51,7 +54,7 @@ export default function ConfirmDialog({
                 : "bg-primary text-primary-foreground hover:bg-primary/90"
             }`}
           >
-            {loading ? "Processing..." : confirmLabel}
+            {loading ? t("confirmDialog.processing") : confirmLabel || t("confirmDialog.confirmDelete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

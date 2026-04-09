@@ -5,6 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { TrendingUp, Target, DollarSign, Users } from "lucide-react";
+import { useI18n } from "../context/I18nContext";
 import { dashboardService } from "../services/dashboardService";
 import { customersService } from "../services/customersService";
 import PageHeader from "../components/common/PageHeader";
@@ -34,6 +35,7 @@ const chartBar = "hsl(var(--foreground) / 0.14)";
 const chartBarActive = "hsl(var(--foreground) / 0.24)";
 
 export default function ReportsPage() {
+  const { t, translateSource, translateIndustry, translateMonthShort, translateStatus } = useI18n();
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: () => dashboardService.stats().then(r => r.data),
@@ -75,19 +77,25 @@ export default function ReportsPage() {
   }, []).sort((a, b) => b.count - a.count).slice(0, 6);
 
   const totalRevenue = stats?.total_revenue || 0;
-  const prevRevenue = revenue.slice(-4, -1).reduce((s, r) => s + r.revenue, 0) / 3;
-  const latestRevenue = revenue[revenue.length - 1]?.revenue || 0;
+  const revenueChartData = revenue.map((item) => ({
+    ...item,
+    short: translateMonthShort(item.short),
+  }));
+  const pipelineChartData = pipeline.map((item) => ({
+    ...item,
+    label: translateStatus(item.stage),
+  }));
 
   const metricCards = [
-    { title: "Total Revenue", value: fmt(totalRevenue), icon: DollarSign, sub: "All time" },
-    { title: "Win Rate", value: `${stats?.win_rate || 0}%`, icon: Target, sub: "Closed deals" },
-    { title: "Pipeline Value", value: fmt(stats?.pipeline_value || 0), icon: TrendingUp, sub: "Active deals" },
-    { title: "Total Customers", value: stats?.total_customers || 0, icon: Users, sub: "All contacts" },
+    { title: t("reports.totalRevenue"), value: fmt(totalRevenue), icon: DollarSign, sub: t("reports.allTime") },
+    { title: t("reports.winRate"), value: `${stats?.win_rate || 0}%`, icon: Target, sub: t("reports.closedDeals") },
+    { title: t("reports.pipelineValue"), value: fmt(stats?.pipeline_value || 0), icon: TrendingUp, sub: t("reports.activeDeals") },
+    { title: t("reports.totalCustomers"), value: stats?.total_customers || 0, icon: Users, sub: t("reports.allContacts") },
   ];
 
   return (
     <div>
-      <PageHeader title="Reports" description="Analytics and performance insights" />
+      <PageHeader title={t("reports.title")} description={t("reports.description")} />
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -109,11 +117,11 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5" data-testid="report-revenue-chart">
           <div className="mb-5">
-            <h2 className="font-outfit text-base font-semibold text-foreground">Revenue Trend</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Monthly closed revenue over 12 months</p>
+            <h2 className="font-outfit text-base font-semibold text-foreground">{t("reports.revenueTrend")}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("reports.revenueTrendDescription")}</p>
           </div>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={revenue} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <AreaChart data={revenueChartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="revGrad2" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
@@ -132,8 +140,8 @@ export default function ReportsPage() {
         {/* Customer by Source */}
         <div className="bg-card border border-border rounded-xl p-5" data-testid="report-source-chart">
           <div className="mb-5">
-            <h2 className="font-outfit text-base font-semibold text-foreground">Acquisition Sources</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Customer acquisition by channel</p>
+            <h2 className="font-outfit text-base font-semibold text-foreground">{t("reports.acquisitionSources")}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("reports.acquisitionSourcesDescription")}</p>
           </div>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
@@ -149,7 +157,7 @@ export default function ReportsPage() {
             {sourceData.slice(0, 4).map((s, i) => (
               <div key={i} className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                <span className="text-xs text-muted-foreground flex-1 truncate">{s.name}</span>
+                <span className="text-xs text-muted-foreground flex-1 truncate">{translateSource(s.name)}</span>
                 <span className="text-xs font-medium text-foreground">{s.value}</span>
               </div>
             ))}
@@ -161,11 +169,11 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-card border border-border rounded-xl p-5" data-testid="report-pipeline-chart">
           <div className="mb-5">
-            <h2 className="font-outfit text-base font-semibold text-foreground">Pipeline by Stage</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Deal value distribution</p>
+            <h2 className="font-outfit text-base font-semibold text-foreground">{t("reports.pipelineByStage")}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("reports.pipelineByStageDescription")}</p>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={pipeline} layout="vertical" margin={{ top: 0, right: 20, left: 50, bottom: 0 }}>
+            <BarChart data={pipelineChartData} layout="vertical" margin={{ top: 0, right: 20, left: 50, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
               <XAxis type="number" tick={{ fill: chartAxis, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v / 1000}k`} />
               <YAxis type="category" dataKey="label" tick={{ fill: chartAxis, fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -177,8 +185,8 @@ export default function ReportsPage() {
 
         <div className="bg-card border border-border rounded-xl p-5" data-testid="report-industry-chart">
           <div className="mb-5">
-            <h2 className="font-outfit text-base font-semibold text-foreground">Top Industries</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Customer distribution by sector</p>
+            <h2 className="font-outfit text-base font-semibold text-foreground">{t("reports.topIndustries")}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("reports.topIndustriesDescription")}</p>
           </div>
           <div className="space-y-3">
             {industryData.map((ind, i) => {
@@ -187,7 +195,7 @@ export default function ReportsPage() {
               return (
                 <div key={i}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-foreground/80">{ind.name}</span>
+                    <span className="text-xs font-medium text-foreground/80">{translateIndustry(ind.name)}</span>
                     <span className="text-xs font-semibold text-foreground">{ind.count}</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">

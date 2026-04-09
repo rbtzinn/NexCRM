@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { I18nProvider, useI18n } from "./context/I18nContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import AppLayout from "./components/layout/AppLayout";
 import LoginPage from "./pages/LoginPage";
@@ -19,11 +20,13 @@ const queryClient = new QueryClient({
 });
 
 function LoadingScreen() {
+  const { t } = useI18n();
+
   return (
     <div className="h-screen w-screen bg-background flex items-center justify-center">
       <div className="flex items-center gap-3">
         <div className="w-5 h-5 border-2 border-border border-t-foreground rounded-full animate-spin" />
-        <span className="text-sm text-muted-foreground">Loading NexCRM...</span>
+        <span className="text-sm text-muted-foreground">{t("common.loadingApp")}</span>
       </div>
     </div>
   );
@@ -73,23 +76,25 @@ function AppRoutes() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <AuthProvider>
-          <BrowserRouter>
-            <Toaster
-              position="top-right"
-              toastOptions={{
-                style: {
-                  background: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
-                  color: "hsl(var(--foreground))",
-                },
-              }}
-            />
-            <AppRoutes />
-          </BrowserRouter>
-        </AuthProvider>
-      </ThemeProvider>
+      <I18nProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <BrowserRouter>
+              <Toaster
+                position="top-right"
+                toastOptions={{
+                  style: {
+                    background: "hsl(var(--popover))",
+                    border: "1px solid hsl(var(--border))",
+                    color: "hsl(var(--foreground))",
+                  },
+                }}
+              />
+              <AppRoutes />
+            </BrowserRouter>
+          </AuthProvider>
+        </ThemeProvider>
+      </I18nProvider>
     </QueryClientProvider>
   );
 }

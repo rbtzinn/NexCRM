@@ -1,25 +1,18 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { useI18n } from "../../context/I18nContext";
 import {
   LayoutDashboard, Users, Handshake, CheckSquare,
-  UserCog, BarChart3, LogOut, Zap, ChevronRight, Menu, X,
+  UserCog, BarChart3, LogOut, Zap, Menu, X,
 } from "lucide-react";
-
-const navItems = [
-  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/customers", label: "Customers", icon: Users },
-  { path: "/deals", label: "Deals", icon: Handshake },
-  { path: "/tasks", label: "Tasks", icon: CheckSquare },
-  { path: "/reports", label: "Reports", icon: BarChart3 },
-];
 
 function NavItem({ item, onClick }) {
   return (
     <NavLink
       to={item.path}
       onClick={onClick}
-      data-testid={`nav-${item.label.toLowerCase()}`}
+      data-testid={`nav-${item.testId || item.path.replace("/", "")}`}
       className={({ isActive }) =>
         `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 group ${
           isActive
@@ -36,8 +29,16 @@ function NavItem({ item, onClick }) {
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
+  const { t, translateStatus } = useI18n();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const navItems = [
+    { path: "/dashboard", label: t("sidebar.dashboard"), testId: "dashboard", icon: LayoutDashboard },
+    { path: "/customers", label: t("sidebar.customers"), testId: "customers", icon: Users },
+    { path: "/deals", label: t("sidebar.deals"), testId: "deals", icon: Handshake },
+    { path: "/tasks", label: t("sidebar.tasks"), testId: "tasks", icon: CheckSquare },
+    { path: "/reports", label: t("sidebar.reports"), testId: "reports", icon: BarChart3 },
+  ];
 
   const handleLogout = () => {
     logout();
@@ -58,16 +59,16 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-none">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground px-3 mb-3">Main</p>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground px-3 mb-3">{t("sidebar.main")}</p>
         {navItems.map((item) => (
-          <NavItem key={item.path} item={item} onClick={onNavClick} />
+          <NavItem key={item.path} item={{ ...item, label: item.label }} onClick={onNavClick} />
         ))}
         {user?.role === "admin" && (
           <>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground px-3 mt-5 mb-3">
-              Admin
+              {t("sidebar.admin")}
             </p>
-            <NavItem item={{ path: "/users", label: "Users", icon: UserCog }} onClick={onNavClick} />
+            <NavItem item={{ path: "/users", label: t("sidebar.users"), icon: UserCog }} onClick={onNavClick} />
           </>
         )}
       </nav>
@@ -80,13 +81,13 @@ export default function Sidebar() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-foreground truncate">{user?.name}</p>
-            <p className="text-[10px] text-muted-foreground truncate capitalize">{user?.role}</p>
+            <p className="text-[10px] text-muted-foreground truncate capitalize">{translateStatus(user?.role)}</p>
           </div>
           <button
             onClick={handleLogout}
             data-testid="logout-button"
             className="text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
-            title="Sign out"
+            title={t("sidebar.signOut")}
           >
             <LogOut className="w-3.5 h-3.5" />
           </button>
