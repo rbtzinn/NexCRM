@@ -28,7 +28,7 @@ export default function Header() {
   const description = pageDescriptions[location.pathname] || "";
 
   return (
-    <header className="h-14 border-b border-white/[0.06] flex items-center justify-between px-6 bg-background/80 backdrop-blur-sm sticky top-0 z-20 flex-shrink-0">
+    <header className="h-14 border-b border-border flex items-center justify-between px-6 bg-background/80 backdrop-blur-sm sticky top-0 z-20 flex-shrink-0">
       <div className="flex items-center gap-3">
         <div className="hidden sm:block">
           <h1 className="font-outfit text-sm font-semibold text-foreground tracking-tight leading-none">

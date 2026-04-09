@@ -12,6 +12,8 @@ export function ThemeProvider({ children }) {
     } else {
       root.classList.remove("dark");
     }
+    root.style.colorScheme = theme;
+    root.dataset.theme = theme;
     localStorage.setItem("nexcrm_theme", theme);
   }, [theme]);
 

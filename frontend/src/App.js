@@ -20,10 +20,10 @@ const queryClient = new QueryClient({
 
 function LoadingScreen() {
   return (
-    <div className="h-screen w-screen bg-black flex items-center justify-center">
+    <div className="h-screen w-screen bg-background flex items-center justify-center">
       <div className="flex items-center gap-3">
-        <div className="w-5 h-5 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
-        <span className="text-sm text-zinc-500">Loading NexCRM...</span>
+        <div className="w-5 h-5 border-2 border-border border-t-foreground rounded-full animate-spin" />
+        <span className="text-sm text-muted-foreground">Loading NexCRM...</span>
       </div>
     </div>
   );
@@ -79,7 +79,11 @@ export default function App() {
             <Toaster
               position="top-right"
               toastOptions={{
-                style: { background: "#111111", border: "1px solid rgba(255,255,255,0.08)", color: "#EDEDED" },
+                style: {
+                  background: "hsl(var(--popover))",
+                  border: "1px solid hsl(var(--border))",
+                  color: "hsl(var(--foreground))",
+                },
               }}
             />
             <AppRoutes />

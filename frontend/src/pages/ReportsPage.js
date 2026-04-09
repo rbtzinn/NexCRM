@@ -1,15 +1,13 @@
-import React, { useState } from "react";
+import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { TrendingUp, Target, DollarSign, Users } from "lucide-react";
 import { dashboardService } from "../services/dashboardService";
 import { customersService } from "../services/customersService";
 import PageHeader from "../components/common/PageHeader";
-import StatusBadge from "../components/common/StatusBadge";
-import { Skeleton } from "../components/ui/skeleton";
 
 const fmt = (v) =>
   v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`;
@@ -29,6 +27,11 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 const PIE_COLORS = ["#3b82f6", "#06b6d4", "#f59e0b", "#10b981", "#8b5cf6", "#f97316"];
+const chartGrid = "hsl(var(--border) / 0.7)";
+const chartAxis = "hsl(var(--muted-foreground) / 0.8)";
+const chartCursor = "hsl(var(--foreground) / 0.08)";
+const chartBar = "hsl(var(--foreground) / 0.14)";
+const chartBarActive = "hsl(var(--foreground) / 0.24)";
 
 export default function ReportsPage() {
   const { data: stats } = useQuery({
@@ -117,10 +120,10 @@ export default function ReportsPage() {
                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-              <XAxis dataKey="short" tick={{ fill: "rgba(161,161,170,0.7)", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "rgba(161,161,170,0.7)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v / 1000}k`} width={48} />
-              <Tooltip content={<CustomTooltip />} cursor={{ stroke: "rgba(255,255,255,0.06)" }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+              <XAxis dataKey="short" tick={{ fill: chartAxis, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: chartAxis, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v / 1000}k`} width={48} />
+              <Tooltip content={<CustomTooltip />} cursor={{ stroke: chartCursor }} />
               <Area type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={1.5} fill="url(#revGrad2)" dot={false} activeDot={{ r: 4, fill: "#3b82f6", strokeWidth: 0 }} />
             </AreaChart>
           </ResponsiveContainer>
@@ -163,11 +166,11 @@ export default function ReportsPage() {
           </div>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={pipeline} layout="vertical" margin={{ top: 0, right: 20, left: 50, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
-              <XAxis type="number" tick={{ fill: "rgba(161,161,170,0.7)", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v / 1000}k`} />
-              <YAxis type="category" dataKey="label" tick={{ fill: "rgba(161,161,170,0.7)", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.02)" }} />
-              <Bar dataKey="value" fill="rgba(255,255,255,0.1)" radius={[0, 3, 3, 0]} activeBar={{ fill: "rgba(255,255,255,0.2)" }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
+              <XAxis type="number" tick={{ fill: chartAxis, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v / 1000}k`} />
+              <YAxis type="category" dataKey="label" tick={{ fill: chartAxis, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: chartCursor }} />
+              <Bar dataKey="value" fill={chartBar} radius={[0, 3, 3, 0]} activeBar={{ fill: chartBarActive }} />
             </BarChart>
           </ResponsiveContainer>
         </div>

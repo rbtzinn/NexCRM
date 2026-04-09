@@ -15,11 +15,16 @@ const schema = z.object({
 const BG_URL =
   "https://images.unsplash.com/photo-1640346876473-f76a73c71539?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGRhcmslMjBnZW9tZXRyaWMlMjBtaW5pbWFsJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3NzU1MDI4MDN8MA&ixlib=rb-4.1.0&q=85";
 
+const publicDemoMode = process.env.REACT_APP_PUBLIC_DEMO_MODE !== "false";
+
 const demoAccounts = [
-  { role: "Admin", email: "admin@nexcrm.io", password: "Admin@123!" },
   { role: "Manager", email: "sarah.chen@nexcrm.io", password: "Manager@123!" },
   { role: "Analyst", email: "marcus.johnson@nexcrm.io", password: "Analyst@123!" },
 ];
+
+if (!publicDemoMode) {
+  demoAccounts.unshift({ role: "Admin", email: "admin@nexcrm.io", password: "Admin@123!" });
+}
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -170,6 +175,14 @@ export default function LoginPage() {
             <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-600 mb-3">
               Demo accounts
             </p>
+            {publicDemoMode && (
+              <div className="mb-3 rounded-lg border border-white/[0.08] bg-[#0A0A0A] px-3.5 py-3">
+                <p className="text-xs font-medium text-zinc-300">Public portfolio demo</p>
+                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
+                  Login attempts are rate-limited and public write actions may be restricted to keep the demo stable.
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               {demoAccounts.map((acc) => (
                 <button

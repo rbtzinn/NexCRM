@@ -7,7 +7,7 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, Users, Handshake,
-  DollarSign, Target, CheckSquare, ArrowRight,
+  DollarSign, Target, ArrowRight,
 } from "lucide-react";
 import { dashboardService } from "../services/dashboardService";
 import StatusBadge from "../components/common/StatusBadge";
@@ -82,14 +82,14 @@ const PipelineTooltip = ({ active, payload, label }) => {
   );
 };
 
-const stageColors = {
-  Lead: "#3b82f6",
-  Qualified: "#06b6d4",
-  Proposal: "#f59e0b",
-  Negotiation: "#f97316",
-  Won: "#10b981",
-  Lost: "#ef4444",
-};
+const chartGrid = "hsl(var(--border) / 0.7)";
+const chartAxis = "hsl(var(--muted-foreground) / 0.8)";
+const chartCursor = "hsl(var(--foreground) / 0.08)";
+const chartLine = "hsl(var(--foreground) / 0.78)";
+const chartFill = "hsl(var(--foreground) / 0.16)";
+const chartBar = "hsl(var(--foreground) / 0.14)";
+const chartBarActive = "hsl(var(--foreground) / 0.24)";
+const chartDot = "hsl(var(--foreground))";
 
 export default function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -172,37 +172,37 @@ export default function DashboardPage() {
               <AreaChart data={revenue} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ffffff" stopOpacity={0.12} />
-                    <stop offset="95%" stopColor="#ffffff" stopOpacity={0} />
+                    <stop offset="5%" stopColor={chartFill} stopOpacity={1} />
+                    <stop offset="95%" stopColor={chartFill} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.04)"
+                  stroke={chartGrid}
                   vertical={false}
                 />
                 <XAxis
                   dataKey="short"
-                  tick={{ fill: "rgba(161,161,170,0.7)", fontSize: 11 }}
+                  tick={{ fill: chartAxis, fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fill: "rgba(161,161,170,0.7)", fontSize: 11 }}
+                  tick={{ fill: chartAxis, fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={(v) => `$${v / 1000}k`}
                   width={48}
                 />
-                <Tooltip content={<CustomTooltip />} cursor={{ stroke: "rgba(255,255,255,0.06)" }} />
+                <Tooltip content={<CustomTooltip />} cursor={{ stroke: chartCursor }} />
                 <Area
                   type="monotone"
                   dataKey="revenue"
-                  stroke="rgba(255,255,255,0.7)"
+                  stroke={chartLine}
                   strokeWidth={1.5}
                   fill="url(#revGrad)"
                   dot={false}
-                  activeDot={{ r: 4, fill: "#fff", strokeWidth: 0 }}
+                  activeDot={{ r: 4, fill: chartDot, strokeWidth: 0 }}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -222,26 +222,26 @@ export default function DashboardPage() {
               <BarChart data={pipeline} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.04)"
+                  stroke={chartGrid}
                   vertical={false}
                 />
                 <XAxis
                   dataKey="label"
-                  tick={{ fill: "rgba(161,161,170,0.7)", fontSize: 10 }}
+                  tick={{ fill: chartAxis, fontSize: 10 }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fill: "rgba(161,161,170,0.7)", fontSize: 11 }}
+                  tick={{ fill: chartAxis, fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                 />
-                <Tooltip content={<PipelineTooltip />} cursor={{ fill: "rgba(255,255,255,0.02)" }} />
+                <Tooltip content={<PipelineTooltip />} cursor={{ fill: chartCursor }} />
                 <Bar
                   dataKey="count"
                   radius={[4, 4, 0, 0]}
-                  fill="rgba(255,255,255,0.12)"
-                  activeBar={{ fill: "rgba(255,255,255,0.2)" }}
+                  fill={chartBar}
+                  activeBar={{ fill: chartBarActive }}
                 />
               </BarChart>
             </ResponsiveContainer>

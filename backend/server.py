@@ -2,15 +2,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import time
 import bcrypt
 import jwt
 import random
 from pathlib import Path
+from collections import defaultdict, deque
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from bson import ObjectId
 from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -29,6 +32,27 @@ ANALYST_PWD = os.environ.get("ANALYST_PASSWORD", "Analyst@123!")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MEMORY_DIR = PROJECT_ROOT / "memory"
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
+RUNNING_ON_VERCEL = os.environ.get("VERCEL") == "1"
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+PUBLIC_DEMO_MODE = env_bool("PUBLIC_DEMO_MODE", RUNNING_ON_VERCEL)
+DEMO_READ_ONLY = env_bool("DEMO_READ_ONLY", RUNNING_ON_VERCEL)
+RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
+RATE_LIMIT_MAX_REQUESTS = int(os.environ.get("RATE_LIMIT_MAX_REQUESTS", "120"))
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "900"))
+LOGIN_RATE_LIMIT_MAX_REQUESTS = int(os.environ.get("LOGIN_RATE_LIMIT_MAX_REQUESTS", "12"))
+WRITE_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("WRITE_RATE_LIMIT_WINDOW_SECONDS", "300"))
+WRITE_RATE_LIMIT_MAX_REQUESTS = int(os.environ.get("WRITE_RATE_LIMIT_MAX_REQUESTS", "30"))
+SAFE_MUTATION_PATHS = {"/api/auth/login", "/api/auth/logout"}
+MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+rate_limit_store = defaultdict(deque)
 
 # ─── MongoDB ───────────────────────────────────────────────────────────────────
 client = AsyncIOMotorClient(MONGO_URL)
@@ -75,6 +99,27 @@ def make_token(user_id: str, email: str, role: str) -> str:
         {"sub": user_id, "email": email, "role": role, "exp": exp, "type": "access"},
         JWT_SECRET, algorithm=JWT_ALGO
     )
+
+
+def get_request_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def hit_rate_limit(bucket_key: str, limit: int, window_seconds: int) -> Optional[int]:
+    now = time.time()
+    bucket = rate_limit_store[bucket_key]
+    while bucket and now - bucket[0] > window_seconds:
+        bucket.popleft()
+    if len(bucket) >= limit:
+        retry_after = max(1, int(window_seconds - (now - bucket[0])))
+        return retry_after
+    bucket.append(now)
+    return None
 
 
 # ─── Auth deps ─────────────────────────────────────────────────────────────────
@@ -220,6 +265,59 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def protect_public_demo(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/"):
+        request_ip = get_request_ip(request)
+
+        retry_after = hit_rate_limit(
+            f"global:{request_ip}",
+            RATE_LIMIT_MAX_REQUESTS,
+            RATE_LIMIT_WINDOW_SECONDS,
+        )
+        if retry_after:
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+                content={"detail": "Too many requests. Please slow down and try again soon."},
+            )
+
+        if path == "/api/auth/login":
+            retry_after = hit_rate_limit(
+                f"login:{request_ip}",
+                LOGIN_RATE_LIMIT_MAX_REQUESTS,
+                LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+            )
+            if retry_after:
+                return JSONResponse(
+                    status_code=429,
+                    headers={"Retry-After": str(retry_after)},
+                    content={"detail": "Too many login attempts. Please try again later."},
+                )
+
+        if request.method in MUTATING_METHODS and path not in SAFE_MUTATION_PATHS:
+            if DEMO_READ_ONLY:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "This public demo is read-only. Contact Roberto for a full walkthrough."},
+                )
+
+            retry_after = hit_rate_limit(
+                f"write:{request_ip}",
+                WRITE_RATE_LIMIT_MAX_REQUESTS,
+                WRITE_RATE_LIMIT_WINDOW_SECONDS,
+            )
+            if retry_after:
+                return JSONResponse(
+                    status_code=429,
+                    headers={"Retry-After": str(retry_after)},
+                    content={"detail": "Write limit reached for this demo. Please try again later."},
+                )
+
+    return await call_next(request)
 
 
 # ─── Health ────────────────────────────────────────────────────────────────────
