@@ -1,89 +1,824 @@
-from fastapi import FastAPI, APIRouter
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+load_dotenv()
+
 import os
-import logging
+import bcrypt
+import jwt
+import random
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List
+from bson import ObjectId
+from fastapi import FastAPI, HTTPException, Request, Depends, Query
+from fastapi.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel
+from contextlib import asynccontextmanager
+
+# ─── Config ────────────────────────────────────────────────────────────────────
+MONGO_URL = os.environ["MONGO_URL"]
+DB_NAME = os.environ["DB_NAME"]
+JWT_SECRET = os.environ.get("JWT_SECRET", "nexcrm-dev-secret")
+JWT_ALGO = "HS256"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@nexcrm.io")
+ADMIN_PWD = os.environ.get("ADMIN_PASSWORD", "Admin@123!")
+MANAGER_EMAIL = os.environ.get("MANAGER_EMAIL", "sarah.chen@nexcrm.io")
+MANAGER_PWD = os.environ.get("MANAGER_PASSWORD", "Manager@123!")
+ANALYST_EMAIL = os.environ.get("ANALYST_EMAIL", "marcus.johnson@nexcrm.io")
+ANALYST_PWD = os.environ.get("ANALYST_PASSWORD", "Analyst@123!")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MEMORY_DIR = PROJECT_ROOT / "memory"
+
+# ─── MongoDB ───────────────────────────────────────────────────────────────────
+client = AsyncIOMotorClient(MONGO_URL)
+db = client[DB_NAME]
 
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
-
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
-
-# Create the main app without a prefix
-app = FastAPI()
-
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+# ─── Helpers ───────────────────────────────────────────────────────────────────
+def oid(id_str: str):
+    try:
+        return ObjectId(id_str)
+    except Exception:
+        raise HTTPException(400, "Invalid ID")
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+def serialize(doc):
+    if not doc:
+        return None
+    d = dict(doc)
+    if "_id" in d:
+        d["id"] = str(d.pop("_id"))
+    for k, v in list(d.items()):
+        if isinstance(v, ObjectId):
+            d[k] = str(v)
+        elif isinstance(v, datetime):
+            d[k] = v.isoformat()
+    return d
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
+def serialize_list(docs):
+    return [serialize(d) for d in docs]
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+def hash_pw(p: str) -> str:
+    return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
 
-# Include the router in the main app
-app.include_router(api_router)
+
+def verify_pw(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
+
+
+def make_token(user_id: str, email: str, role: str) -> str:
+    exp = datetime.now(timezone.utc) + timedelta(hours=24)
+    return jwt.encode(
+        {"sub": user_id, "email": email, "role": role, "exp": exp, "type": "access"},
+        JWT_SECRET, algorithm=JWT_ALGO
+    )
+
+
+# ─── Auth deps ─────────────────────────────────────────────────────────────────
+async def get_user(request: Request):
+    token = None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+    if not token:
+        token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+        if payload.get("type") != "access":
+            raise HTTPException(401, "Invalid token type")
+        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        if not user:
+            raise HTTPException(401, "User not found")
+        u = serialize(user)
+        u.pop("password_hash", None)
+        return u
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Invalid token")
+
+
+async def admin_only(user=Depends(get_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin only")
+    return user
+
+
+async def manager_plus(user=Depends(get_user)):
+    if user["role"] not in ("admin", "manager"):
+        raise HTTPException(403, "Manager+ required")
+    return user
+
+
+# ─── Pydantic Models ───────────────────────────────────────────────────────────
+class LoginReq(BaseModel):
+    email: str
+    password: str
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+    name: str
+    role: str = "analyst"
+    department: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    department: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class CustomerIn(BaseModel):
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    company: str
+    industry: Optional[str] = None
+    status: str = "lead"
+    value: float = 0
+    source: Optional[str] = None
+    tags: List[str] = []
+    notes: Optional[str] = None
+
+
+class CustomerUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    company: Optional[str] = None
+    industry: Optional[str] = None
+    status: Optional[str] = None
+    value: Optional[float] = None
+    source: Optional[str] = None
+    tags: Optional[List[str]] = None
+    notes: Optional[str] = None
+
+
+class DealIn(BaseModel):
+    title: str
+    customer_id: str
+    customer_name: Optional[str] = None
+    stage: str = "lead"
+    value: float = 0
+    probability: int = 10
+    expected_close_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class DealUpdate(BaseModel):
+    title: Optional[str] = None
+    stage: Optional[str] = None
+    value: Optional[float] = None
+    probability: Optional[int] = None
+    expected_close_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TaskIn(BaseModel):
+    title: str
+    description: Optional[str] = None
+    customer_id: Optional[str] = None
+    deal_id: Optional[str] = None
+    priority: str = "medium"
+    status: str = "todo"
+    due_date: Optional[str] = None
+
+
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+    due_date: Optional[str] = None
+
+
+# ─── App ───────────────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await setup_db()
+    yield
+
+
+app = FastAPI(title="NexCRM API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+# ─── Health ────────────────────────────────────────────────────────────────────
+@app.get("/api/")
+async def health():
+    return {"status": "ok", "service": "NexCRM API v1.0"}
+
+
+# ─── AUTH ──────────────────────────────────────────────────────────────────────
+@app.post("/api/auth/login")
+async def login(req: LoginReq):
+    user = await db.users.find_one({"email": req.email.lower().strip()})
+    if not user or not verify_pw(req.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid email or password")
+    if not user.get("is_active", True):
+        raise HTTPException(401, "Account deactivated")
+    token = make_token(str(user["_id"]), user["email"], user["role"])
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"last_login": datetime.now(timezone.utc)}}
+    )
+    u = serialize(user)
+    u.pop("password_hash", None)
+    return {"token": token, "user": u}
+
+
+@app.get("/api/auth/me")
+async def me(user=Depends(get_user)):
+    return user
+
+
+@app.post("/api/auth/logout")
+async def logout(user=Depends(get_user)):
+    return {"message": "Logged out"}
+
+
+# ─── USERS ─────────────────────────────────────────────────────────────────────
+@app.get("/api/users")
+async def list_users(user=Depends(admin_only)):
+    users = await db.users.find().sort("created_at", -1).to_list(100)
+    result = []
+    for u in users:
+        uu = serialize(u)
+        uu.pop("password_hash", None)
+        result.append(uu)
+    return result
+
+
+@app.post("/api/users")
+async def create_user(body: UserCreate, user=Depends(admin_only)):
+    if await db.users.find_one({"email": body.email.lower()}):
+        raise HTTPException(400, "Email already exists")
+    now = datetime.now(timezone.utc)
+    doc = {
+        "email": body.email.lower(),
+        "password_hash": hash_pw(body.password),
+        "name": body.name,
+        "role": body.role,
+        "department": body.department,
+        "is_active": True,
+        "created_at": now,
+        "last_login": None,
+    }
+    res = await db.users.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    u = serialize(doc)
+    u.pop("password_hash", None)
+    return u
+
+
+@app.get("/api/users/{uid}")
+async def get_user_by_id(uid: str, user=Depends(admin_only)):
+    u = await db.users.find_one({"_id": oid(uid)})
+    if not u:
+        raise HTTPException(404, "User not found")
+    uu = serialize(u)
+    uu.pop("password_hash", None)
+    return uu
+
+
+@app.put("/api/users/{uid}")
+async def update_user(uid: str, body: UserUpdate, user=Depends(admin_only)):
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "Nothing to update")
+    updates["updated_at"] = datetime.now(timezone.utc)
+    res = await db.users.update_one({"_id": oid(uid)}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(404, "User not found")
+    u = await db.users.find_one({"_id": oid(uid)})
+    uu = serialize(u)
+    uu.pop("password_hash", None)
+    return uu
+
+
+@app.delete("/api/users/{uid}")
+async def delete_user(uid: str, user=Depends(admin_only)):
+    res = await db.users.delete_one({"_id": oid(uid)})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "User not found")
+    return {"message": "User deleted"}
+
+
+# ─── CUSTOMERS ─────────────────────────────────────────────────────────────────
+@app.get("/api/customers")
+async def list_customers(
+    user=Depends(get_user),
+    search: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    industry: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+):
+    query = {}
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"company": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+        ]
+    if status:
+        query["status"] = status
+    if industry:
+        query["industry"] = industry
+    total = await db.customers.count_documents(query)
+    skip = (page - 1) * limit
+    docs = await db.customers.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return {
+        "data": serialize_list(docs),
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": max(1, (total + limit - 1) // limit),
+    }
+
+
+@app.post("/api/customers")
+async def create_customer(body: CustomerIn, user=Depends(get_user)):
+    if user["role"] == "analyst":
+        raise HTTPException(403, "Analysts cannot create customers")
+    now = datetime.now(timezone.utc)
+    doc = {**body.dict(), "owner_id": user["id"], "owner_name": user["name"], "created_at": now, "updated_at": now}
+    res = await db.customers.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return serialize(doc)
+
+
+@app.get("/api/customers/{cid}")
+async def get_customer(cid: str, user=Depends(get_user)):
+    c = await db.customers.find_one({"_id": oid(cid)})
+    if not c:
+        raise HTTPException(404, "Customer not found")
+    customer = serialize(c)
+    deals = await db.deals.find({"customer_id": cid}).to_list(50)
+    tasks = await db.tasks.find({"customer_id": cid}).to_list(50)
+    customer["deals"] = serialize_list(deals)
+    customer["tasks"] = serialize_list(tasks)
+    return customer
+
+
+@app.put("/api/customers/{cid}")
+async def update_customer(cid: str, body: CustomerUpdate, user=Depends(get_user)):
+    if user["role"] == "analyst":
+        raise HTTPException(403, "Analysts cannot edit customers")
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "Nothing to update")
+    updates["updated_at"] = datetime.now(timezone.utc)
+    res = await db.customers.update_one({"_id": oid(cid)}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Customer not found")
+    return serialize(await db.customers.find_one({"_id": oid(cid)}))
+
+
+@app.delete("/api/customers/{cid}")
+async def delete_customer(cid: str, user=Depends(manager_plus)):
+    res = await db.customers.delete_one({"_id": oid(cid)})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Customer not found")
+    return {"message": "Customer deleted"}
+
+
+# ─── DEALS ─────────────────────────────────────────────────────────────────────
+@app.get("/api/deals")
+async def list_deals(
+    user=Depends(get_user),
+    search: Optional[str] = Query(None),
+    stage: Optional[str] = Query(None),
+    customer_id: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+):
+    query = {}
+    if search:
+        query["$or"] = [
+            {"title": {"$regex": search, "$options": "i"}},
+            {"customer_name": {"$regex": search, "$options": "i"}},
+        ]
+    if stage:
+        query["stage"] = stage
+    if customer_id:
+        query["customer_id"] = customer_id
+    total = await db.deals.count_documents(query)
+    skip = (page - 1) * limit
+    docs = await db.deals.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return {
+        "data": serialize_list(docs),
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": max(1, (total + limit - 1) // limit),
+    }
+
+
+@app.post("/api/deals")
+async def create_deal(body: DealIn, user=Depends(get_user)):
+    if user["role"] == "analyst":
+        raise HTTPException(403, "Analysts cannot create deals")
+    customer_name = body.customer_name
+    if not customer_name:
+        c = await db.customers.find_one({"_id": oid(body.customer_id)})
+        customer_name = c["name"] if c else "Unknown"
+    now = datetime.now(timezone.utc)
+    doc = {
+        **body.dict(),
+        "customer_name": customer_name,
+        "owner_id": user["id"],
+        "owner_name": user["name"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    res = await db.deals.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return serialize(doc)
+
+
+@app.get("/api/deals/{did}")
+async def get_deal(did: str, user=Depends(get_user)):
+    d = await db.deals.find_one({"_id": oid(did)})
+    if not d:
+        raise HTTPException(404, "Deal not found")
+    return serialize(d)
+
+
+@app.put("/api/deals/{did}")
+async def update_deal(did: str, body: DealUpdate, user=Depends(get_user)):
+    if user["role"] == "analyst":
+        raise HTTPException(403, "Analysts cannot edit deals")
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "Nothing to update")
+    updates["updated_at"] = datetime.now(timezone.utc)
+    res = await db.deals.update_one({"_id": oid(did)}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Deal not found")
+    return serialize(await db.deals.find_one({"_id": oid(did)}))
+
+
+@app.delete("/api/deals/{did}")
+async def delete_deal(did: str, user=Depends(manager_plus)):
+    res = await db.deals.delete_one({"_id": oid(did)})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Deal not found")
+    return {"message": "Deal deleted"}
+
+
+# ─── TASKS ─────────────────────────────────────────────────────────────────────
+@app.get("/api/tasks")
+async def list_tasks(
+    user=Depends(get_user),
+    search: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    priority: Optional[str] = Query(None),
+    customer_id: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+):
+    query = {}
+    if search:
+        query["title"] = {"$regex": search, "$options": "i"}
+    if status:
+        query["status"] = status
+    if priority:
+        query["priority"] = priority
+    if customer_id:
+        query["customer_id"] = customer_id
+    total = await db.tasks.count_documents(query)
+    skip = (page - 1) * limit
+    docs = await db.tasks.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return {
+        "data": serialize_list(docs),
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": max(1, (total + limit - 1) // limit),
+    }
+
+
+@app.post("/api/tasks")
+async def create_task(body: TaskIn, user=Depends(get_user)):
+    now = datetime.now(timezone.utc)
+    doc = {
+        **body.dict(),
+        "assignee_id": user["id"],
+        "assignee_name": user["name"],
+        "created_by": user["id"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    res = await db.tasks.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return serialize(doc)
+
+
+@app.get("/api/tasks/{tid}")
+async def get_task(tid: str, user=Depends(get_user)):
+    t = await db.tasks.find_one({"_id": oid(tid)})
+    if not t:
+        raise HTTPException(404, "Task not found")
+    return serialize(t)
+
+
+@app.put("/api/tasks/{tid}")
+async def update_task(tid: str, body: TaskUpdate, user=Depends(get_user)):
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "Nothing to update")
+    updates["updated_at"] = datetime.now(timezone.utc)
+    res = await db.tasks.update_one({"_id": oid(tid)}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Task not found")
+    return serialize(await db.tasks.find_one({"_id": oid(tid)}))
+
+
+@app.delete("/api/tasks/{tid}")
+async def delete_task(tid: str, user=Depends(get_user)):
+    res = await db.tasks.delete_one({"_id": oid(tid)})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Task not found")
+    return {"message": "Task deleted"}
+
+
+# ─── DASHBOARD ─────────────────────────────────────────────────────────────────
+@app.get("/api/dashboard/stats")
+async def dashboard_stats(user=Depends(get_user)):
+    total_customers = await db.customers.count_documents({})
+    active_deals = await db.deals.count_documents({"stage": {"$nin": ["closed_won", "closed_lost"]}})
+    won = await db.deals.count_documents({"stage": "closed_won"})
+    lost = await db.deals.count_documents({"stage": "closed_lost"})
+    total_closed = won + lost
+
+    rev_agg = await db.deals.aggregate([
+        {"$match": {"stage": "closed_won"}},
+        {"$group": {"_id": None, "total": {"$sum": "$value"}}}
+    ]).to_list(1)
+    total_revenue = rev_agg[0]["total"] if rev_agg else 0
+
+    pipe_agg = await db.deals.aggregate([
+        {"$match": {"stage": {"$nin": ["closed_won", "closed_lost"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$value"}}}
+    ]).to_list(1)
+    pipeline_value = pipe_agg[0]["total"] if pipe_agg else 0
+
+    # MoM revenue growth
+    now = datetime.now(timezone.utc)
+    cur_month = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    prev_m = now.month - 1
+    prev_y = now.year
+    if prev_m == 0:
+        prev_m = 12
+        prev_y -= 1
+    prev_month = datetime(prev_y, prev_m, 1, tzinfo=timezone.utc)
+
+    cur_rev_agg = await db.deals.aggregate([
+        {"$match": {"stage": "closed_won", "updated_at": {"$gte": cur_month}}},
+        {"$group": {"_id": None, "total": {"$sum": "$value"}}}
+    ]).to_list(1)
+    prev_rev_agg = await db.deals.aggregate([
+        {"$match": {"stage": "closed_won", "updated_at": {"$gte": prev_month, "$lt": cur_month}}},
+        {"$group": {"_id": None, "total": {"$sum": "$value"}}}
+    ]).to_list(1)
+    cur_rev = cur_rev_agg[0]["total"] if cur_rev_agg else 0
+    prev_rev = prev_rev_agg[0]["total"] if prev_rev_agg else 0
+    mom_growth = round(((cur_rev - prev_rev) / prev_rev * 100) if prev_rev > 0 else 0, 1)
+
+    return {
+        "total_customers": total_customers,
+        "active_deals": active_deals,
+        "total_revenue": total_revenue,
+        "pipeline_value": pipeline_value,
+        "win_rate": round((won / total_closed * 100) if total_closed > 0 else 0, 1),
+        "pending_tasks": await db.tasks.count_documents({"status": {"$nin": ["done"]}}),
+        "won_deals": won,
+        "mom_growth": mom_growth,
+    }
+
+
+@app.get("/api/dashboard/revenue")
+async def dashboard_revenue(user=Depends(get_user)):
+    now = datetime.now(timezone.utc)
+    result = []
+    for i in range(11, -1, -1):
+        total_m = now.year * 12 + (now.month - 1)
+        t = total_m - i
+        y, m = t // 12, (t % 12) + 1
+        ms = datetime(y, m, 1, tzinfo=timezone.utc)
+        me = datetime(y + 1, 1, 1, tzinfo=timezone.utc) if m == 12 else datetime(y, m + 1, 1, tzinfo=timezone.utc)
+        agg = await db.deals.aggregate([
+            {"$match": {"stage": "closed_won", "updated_at": {"$gte": ms, "$lt": me}}},
+            {"$group": {"_id": None, "total": {"$sum": "$value"}}}
+        ]).to_list(1)
+        result.append({
+            "month": ms.strftime("%b %Y"),
+            "short": ms.strftime("%b"),
+            "revenue": agg[0]["total"] if agg else 0,
+        })
+    return result
+
+
+@app.get("/api/dashboard/pipeline")
+async def dashboard_pipeline(user=Depends(get_user)):
+    stages = [
+        ("lead", "Lead"), ("qualified", "Qualified"), ("proposal", "Proposal"),
+        ("negotiation", "Negotiation"), ("closed_won", "Won"), ("closed_lost", "Lost"),
+    ]
+    result = []
+    for stage, label in stages:
+        count = await db.deals.count_documents({"stage": stage})
+        val_agg = await db.deals.aggregate([
+            {"$match": {"stage": stage}},
+            {"$group": {"_id": None, "total": {"$sum": "$value"}}}
+        ]).to_list(1)
+        result.append({"stage": stage, "label": label, "count": count, "value": val_agg[0]["total"] if val_agg else 0})
+    return result
+
+
+@app.get("/api/dashboard/recent-deals")
+async def recent_deals(user=Depends(get_user)):
+    docs = await db.deals.find({"stage": {"$nin": ["closed_lost"]}}).sort("updated_at", -1).limit(6).to_list(6)
+    return serialize_list(docs)
+
+
+@app.get("/api/dashboard/activity")
+async def recent_activity(user=Depends(get_user)):
+    docs = await db.tasks.find().sort("updated_at", -1).limit(6).to_list(6)
+    return serialize_list(docs)
+
+
+# ─── SEEDING ───────────────────────────────────────────────────────────────────
+async def setup_db():
+    await db.users.create_index("email", unique=True)
+
+    users_seed = [
+        {"email": ADMIN_EMAIL, "name": "Adam Pierce", "role": "admin", "department": "Executive", "pwd": ADMIN_PWD},
+        {"email": MANAGER_EMAIL, "name": "Sarah Chen", "role": "manager", "department": "Sales", "pwd": MANAGER_PWD},
+        {"email": ANALYST_EMAIL, "name": "Marcus Johnson", "role": "analyst", "department": "Operations", "pwd": ANALYST_PWD},
+    ]
+    user_ids = {}
+    for u in users_seed:
+        ex = await db.users.find_one({"email": u["email"]})
+        if not ex:
+            doc = {
+                "email": u["email"], "name": u["name"], "role": u["role"],
+                "department": u["department"], "password_hash": hash_pw(u["pwd"]),
+                "is_active": True, "created_at": datetime.now(timezone.utc), "last_login": None,
+            }
+            r = await db.users.insert_one(doc)
+            user_ids[u["role"]] = str(r.inserted_id)
+        else:
+            user_ids[u["role"]] = str(ex["_id"])
+            if not verify_pw(u["pwd"], ex["password_hash"]):
+                await db.users.update_one({"_id": ex["_id"]}, {"$set": {"password_hash": hash_pw(u["pwd"])}})
+
+    if await db.customers.count_documents({}) == 0:
+        cust_seed = [
+            {"name": "Emily Carter", "email": "emily@techvision.io", "phone": "+1 (555) 201-4892", "company": "TechVision Inc.", "industry": "Technology", "status": "customer", "value": 48500, "source": "Referral", "tags": ["enterprise", "saas"]},
+            {"name": "James Harrington", "email": "jharrington@novapulse.com", "phone": "+1 (555) 338-7741", "company": "NovaPulse", "industry": "Healthcare", "status": "customer", "value": 62000, "source": "Conference", "tags": ["healthcare", "large"]},
+            {"name": "Sophia Nakamura", "email": "sophia@orbitmedia.co", "phone": "+1 (555) 447-9023", "company": "Orbit Media Co.", "industry": "Marketing", "status": "prospect", "value": 18000, "source": "Website", "tags": ["sme", "marketing"]},
+            {"name": "David Reyes", "email": "d.reyes@bridgecapital.com", "phone": "+1 (555) 512-3456", "company": "Bridge Capital", "industry": "Finance", "status": "customer", "value": 120000, "source": "Cold Outreach", "tags": ["finance", "enterprise"]},
+            {"name": "Clara Mendes", "email": "clara@greenleaf.biz", "phone": "+1 (555) 623-8812", "company": "Greenleaf Solutions", "industry": "Sustainability", "status": "lead", "value": 9500, "source": "LinkedIn", "tags": ["startup"]},
+            {"name": "Nathan Brooks", "email": "nbrooks@vexustech.com", "phone": "+1 (555) 789-3340", "company": "Vexus Technologies", "industry": "Technology", "status": "customer", "value": 55000, "source": "Partner", "tags": ["tech", "mid-market"]},
+            {"name": "Olivia Patel", "email": "o.patel@nexalabs.ai", "phone": "+1 (555) 901-2234", "company": "Nexa Labs AI", "industry": "Artificial Intelligence", "status": "prospect", "value": 75000, "source": "Conference", "tags": ["ai", "enterprise"]},
+            {"name": "Marcus Flynn", "email": "mflynn@ironforge.io", "phone": "+1 (555) 667-4521", "company": "IronForge Manufacturing", "industry": "Manufacturing", "status": "churned", "value": 30000, "source": "Referral", "tags": ["manufacturing"]},
+            {"name": "Isabelle Dubois", "email": "idubois@stratosphere.fr", "phone": "+33 1 40 20 50 10", "company": "Stratosphere SA", "industry": "Consulting", "status": "customer", "value": 42000, "source": "Website", "tags": ["consulting", "europe"]},
+            {"name": "Ryan Kwon", "email": "ryan@luminahealth.com", "phone": "+1 (555) 234-5678", "company": "Lumina Health", "industry": "Healthcare", "status": "prospect", "value": 33000, "source": "Webinar", "tags": ["healthcare", "sme"]},
+            {"name": "Amara Osei", "email": "aosei@solargrid.io", "phone": "+1 (555) 345-6789", "company": "SolarGrid Energy", "industry": "Energy", "status": "lead", "value": 88000, "source": "Trade Show", "tags": ["energy", "large"]},
+            {"name": "Lucas Ferreira", "email": "lferreira@codeblast.dev", "phone": "+55 11 3456-7890", "company": "CodeBlast Dev", "industry": "Technology", "status": "customer", "value": 14000, "source": "Cold Outreach", "tags": ["startup", "dev-tools"]},
+        ]
+        now = datetime.now(timezone.utc)
+        cids = []
+        for i, c in enumerate(cust_seed):
+            off = (i * 23) % 310
+            created = now - timedelta(days=off + 10)
+            doc = {**c, "notes": f"Key account at {c['company']}.", "owner_id": user_ids.get("manager", ""), "owner_name": "Sarah Chen", "created_at": created, "updated_at": created}
+            r = await db.customers.insert_one(doc)
+            cids.append({"id": str(r.inserted_id), "name": c["name"], "company": c["company"]})
+    else:
+        custs = await db.customers.find({}).to_list(100)
+        cids = [{"id": str(c["_id"]), "name": c["name"], "company": c["company"]} for c in custs]
+
+    if await db.deals.count_documents({}) == 0 and cids:
+        now = datetime.now(timezone.utc)
+        # Historical revenue deals (closed_won) for the last 12 months chart
+        monthly_rev = [42000, 38500, 55200, 48100, 61800, 57400, 72300, 65900, 81200, 74500, 88000, 92400]
+        for i, rev in enumerate(monthly_rev):
+            total_m = now.year * 12 + (now.month - 1)
+            t = total_m - (11 - i)
+            y, m = t // 12, (t % 12) + 1
+            deal_date = datetime(y, m, 15, tzinfo=timezone.utc)
+            cust = cids[i % len(cids)]
+            await db.deals.insert_one({
+                "title": f"Revenue Deal — {cust['company']}",
+                "customer_id": cust["id"], "customer_name": cust["name"],
+                "stage": "closed_won", "value": rev, "probability": 100,
+                "expected_close_date": deal_date.strftime("%Y-%m-%d"),
+                "notes": "Closed and won.", "owner_id": user_ids.get("manager", ""),
+                "owner_name": "Sarah Chen", "created_at": deal_date, "updated_at": deal_date,
+            })
+
+        # Active pipeline deals
+        pipeline_deals = [
+            ("Enterprise License — TechVision", 0, "lead", 10, 4800),
+            ("Platform Upgrade — NovaPulse", 1, "lead", 15, 12500),
+            ("Annual Subscription — Orbit Media", 2, "qualified", 30, 22000),
+            ("Data Analytics Module — Bridge Capital", 3, "qualified", 35, 35000),
+            ("Security Suite — Vexus Tech", 5, "proposal", 55, 18000),
+            ("API Integration — Nexa Labs", 6, "proposal", 60, 45000),
+            ("Cloud Migration — Stratosphere SA", 8, "negotiation", 75, 68000),
+            ("Compliance Module — Lumina Health", 9, "closed_lost", 0, 28000),
+        ]
+        for title, ci, stage, prob, val in pipeline_deals:
+            cust = cids[ci % len(cids)]
+            days_ago = random.randint(5, 90)
+            created = now - timedelta(days=days_ago)
+            close = (now + timedelta(days=random.randint(15, 90))).strftime("%Y-%m-%d")
+            await db.deals.insert_one({
+                "title": title, "customer_id": cust["id"], "customer_name": cust["name"],
+                "stage": stage, "value": val, "probability": prob,
+                "expected_close_date": close, "notes": f"Deal for {cust['company']}.",
+                "owner_id": user_ids.get("manager", ""), "owner_name": "Sarah Chen",
+                "created_at": created, "updated_at": created,
+            })
+
+    if await db.tasks.count_documents({}) == 0 and cids:
+        now = datetime.now(timezone.utc)
+        tasks_seed = [
+            ("Follow up with TechVision on renewal", "high", "todo", 0),
+            ("Prepare proposal for Nexa Labs AI", "urgent", "in_progress", 6),
+            ("Send contract to Bridge Capital", "medium", "done", 3),
+            ("Schedule demo for Orbit Media Co.", "medium", "todo", 2),
+            ("Review Lumina Health legal documents", "high", "in_progress", 9),
+            ("Update CRM records for Q2", "low", "todo", 4),
+            ("Onboarding call with CodeBlast Dev", "medium", "done", 11),
+            ("Quarterly review preparation", "high", "in_progress", 1),
+            ("Follow up with SolarGrid Energy", "medium", "todo", 10),
+            ("Draft proposal for Stratosphere SA", "medium", "done", 8),
+            ("Check in with IronForge re: re-engagement", "low", "todo", 7),
+            ("Process renewal — Vexus Technologies", "high", "in_progress", 5),
+        ]
+        for title, priority, status, ci in tasks_seed:
+            cust = cids[ci % len(cids)]
+            due = (now + timedelta(days=random.randint(-3, 14))).strftime("%Y-%m-%d")
+            created = now - timedelta(days=random.randint(1, 30))
+            await db.tasks.insert_one({
+                "title": title, "description": f"Action required for {cust['name']} at {cust['company']}.",
+                "customer_id": cust["id"], "deal_id": None,
+                "priority": priority, "status": status, "due_date": due,
+                "assignee_id": user_ids.get("analyst", ""), "assignee_name": "Marcus Johnson",
+                "created_by": user_ids.get("manager", ""),
+                "created_at": created, "updated_at": created,
+            })
+
+    # Write test credentials in the local project memory directory.
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    with (MEMORY_DIR / "test_credentials.md").open("w", encoding="utf-8") as f:
+        f.write(f"""# NexCRM Test Credentials
+
+## Admin User
+- Email: {ADMIN_EMAIL}
+- Password: {ADMIN_PWD}
+- Role: admin
+- Access: Full system access including User Management
+
+## Manager User
+- Email: {MANAGER_EMAIL}
+- Password: {MANAGER_PWD}
+- Role: manager
+- Access: Customers, Deals, Tasks, Reports (no User Management)
+
+## Analyst User
+- Email: {ANALYST_EMAIL}
+- Password: {ANALYST_PWD}
+- Role: analyst
+- Access: Read-only on customers/deals, can create/edit tasks
+
+## API Endpoints
+- Base: /api
+- POST /api/auth/login
+- GET  /api/auth/me
+- GET  /api/customers
+- GET  /api/deals
+- GET  /api/tasks
+- GET  /api/users (admin only)
+- GET  /api/dashboard/stats
+- GET  /api/dashboard/revenue
+- GET  /api/dashboard/pipeline
+""")
