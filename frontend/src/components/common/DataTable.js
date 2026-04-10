@@ -6,6 +6,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { useI18n } from "../../context/I18nContext";
 import { Skeleton } from "../ui/skeleton";
 
 function SortIcon({ column }) {
@@ -35,6 +36,7 @@ function TableSkeleton({ cols = 5, rows = 5 }) {
 }
 
 export default function DataTable({ columns, data = [], loading = false }) {
+  const { t } = useI18n();
   const [sorting, setSorting] = useState([]);
 
   const table = useReactTable({
@@ -77,7 +79,7 @@ export default function DataTable({ columns, data = [], loading = false }) {
                 colSpan={columns.length}
                 className="px-4 py-12 text-center text-sm text-muted-foreground"
               >
-                No records found
+                {t("common.noResults")}
               </td>
             </tr>
           ) : (

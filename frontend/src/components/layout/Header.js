@@ -1,5 +1,5 @@
-import React from "react";
-import { useLocation } from "react-router-dom";
+import React, { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Bell, Sun, Moon, Search } from "lucide-react";
 import { useI18n } from "../../context/I18nContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -8,13 +8,21 @@ export default function Header() {
   const { theme, toggleTheme } = useTheme();
   const { language, setLanguage, t } = useI18n();
   const location = useLocation();
-  const pageKey = location.pathname === "/" ? "dashboard" : location.pathname.replace("/", "");
+  const navigate = useNavigate();
+  const [searchValue, setSearchValue] = useState("");
+  const pageKey = location.pathname === "/" ? "dashboard" : location.pathname.slice(1);
   const title = t(`header.${pageKey}Title`) === `header.${pageKey}Title` ? "NexCRM" : t(`header.${pageKey}Title`);
   const description = t(`header.${pageKey}Description`) === `header.${pageKey}Description` ? "" : t(`header.${pageKey}Description`);
 
+  const submitSearch = (event) => {
+    event.preventDefault();
+    const query = searchValue.trim();
+    navigate(query ? `/search?q=${encodeURIComponent(query)}` : "/search");
+  };
+
   return (
-    <header className="h-14 border-b border-border flex items-center justify-between px-6 bg-background/80 backdrop-blur-sm sticky top-0 z-20 flex-shrink-0">
-      <div className="flex items-center gap-3">
+    <header className="min-h-14 border-b border-border flex items-center justify-between px-4 sm:px-5 lg:px-6 bg-background/80 backdrop-blur-sm sticky top-0 z-20 flex-shrink-0">
+      <div className="flex items-center gap-3 min-w-0">
         <div className="hidden sm:block">
           <h1 className="font-outfit text-sm font-semibold text-foreground tracking-tight leading-none">
             {title}
@@ -26,15 +34,17 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-1.5">
-        <div className="relative hidden md:block">
+        <form onSubmit={submitSearch} className="relative hidden md:block">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="text"
             placeholder={t("header.searchPlaceholder")}
             data-testid="header-search"
+            value={searchValue}
+            onChange={(event) => setSearchValue(event.target.value)}
             className="bg-muted/50 border border-border text-sm text-foreground placeholder:text-muted-foreground pl-8 pr-3 py-1.5 rounded-lg w-48 focus:outline-none focus:ring-1 focus:ring-ring focus:bg-muted transition-all"
           />
-        </div>
+        </form>
 
         <div className="flex items-center bg-muted border border-border rounded-lg p-0.5 mr-1">
           {["pt", "en"].map((lang) => (
@@ -50,6 +60,15 @@ export default function Header() {
             </button>
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={() => navigate("/search")}
+          className="md:hidden p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-lg transition-colors"
+          title={t("common.searchEverywhere")}
+        >
+          <Search className="w-4 h-4" />
+        </button>
 
         <button
           onClick={toggleTheme}

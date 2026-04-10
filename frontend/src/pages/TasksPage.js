@@ -4,10 +4,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Plus, Search, Loader2, Trash2, Pencil, CheckSquare, CheckCheck } from "lucide-react";
+import { Plus, Search, Loader2, Trash2, Pencil, CheckSquare, CheckCheck, Download } from "lucide-react";
 import { tasksService } from "../services/tasksService";
 import { customersService } from "../services/customersService";
 import { useI18n } from "../context/I18nContext";
+import { exportRowsToCsv } from "../lib/exportCsv";
 import PageHeader from "../components/common/PageHeader";
 import StatusBadge from "../components/common/StatusBadge";
 import EmptyState from "../components/common/EmptyState";
@@ -257,13 +258,32 @@ export default function TasksPage() {
         title={t("tasks.title")}
         description={t("tasks.description", { total: data?.total ?? 0 })}
         actions={
-          <button
-            onClick={handleAdd}
-            data-testid="add-task-button"
-            className="flex items-center gap-2 bg-foreground text-background text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition-opacity"
-          >
-            <Plus className="w-4 h-4" /> {t("tasks.addTask")}
-          </button>
+          <>
+            <button
+              onClick={() =>
+                exportRowsToCsv(
+                  "nexcrm-tasks.csv",
+                  tasks.map((task) => ({
+                    title: task.title,
+                    assignee: task.assignee_name,
+                    priority: task.priority,
+                    status: task.status,
+                    dueDate: task.due_date,
+                  }))
+                )
+              }
+              className="flex items-center gap-2 bg-card border border-border text-sm font-semibold px-4 py-2 rounded-lg hover:bg-accent/70 transition-colors"
+            >
+              <Download className="w-4 h-4" /> {t("common.exportCsv")}
+            </button>
+            <button
+              onClick={handleAdd}
+              data-testid="add-task-button"
+              className="flex items-center gap-2 bg-foreground text-background text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition-opacity"
+            >
+              <Plus className="w-4 h-4" /> {t("tasks.addTask")}
+            </button>
+          </>
         }
       />
 

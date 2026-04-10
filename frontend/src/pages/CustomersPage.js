@@ -4,8 +4,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Plus, Search, Users, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Search, Users, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { customersService } from "../services/customersService";
+import { exportRowsToCsv } from "../lib/exportCsv";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
 import PageHeader from "../components/common/PageHeader";
@@ -230,11 +231,32 @@ export default function CustomersPage() {
         description={t("customers.description", { total: data?.total ?? 0 })}
         badge={data?.total ? String(data.total) : undefined}
         actions={
-          canManage && (
-            <button onClick={handleAdd} data-testid="add-customer-button" className="flex items-center gap-2 bg-foreground text-background text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">
-              <Plus className="w-4 h-4" /> {t("customers.addCustomer")}
+          <>
+            <button
+              onClick={() =>
+                exportRowsToCsv(
+                  "nexcrm-customers.csv",
+                  customers.map((customer) => ({
+                    name: customer.name,
+                    company: customer.company,
+                    email: customer.email,
+                    status: customer.status,
+                    value: customer.value,
+                    industry: customer.industry,
+                    source: customer.source,
+                  }))
+                )
+              }
+              className="flex items-center gap-2 bg-card border border-border text-sm font-semibold px-4 py-2 rounded-lg hover:bg-accent/70 transition-colors"
+            >
+              <Download className="w-4 h-4" /> {t("common.exportCsv")}
             </button>
-          )
+            {canManage && (
+              <button onClick={handleAdd} data-testid="add-customer-button" className="flex items-center gap-2 bg-foreground text-background text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">
+                <Plus className="w-4 h-4" /> {t("customers.addCustomer")}
+              </button>
+            )}
+          </>
         }
       />
 

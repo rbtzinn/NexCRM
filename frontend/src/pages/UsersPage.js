@@ -4,10 +4,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Plus, Loader2, Trash2, Pencil, UserCog, ShieldAlert } from "lucide-react";
+import { Plus, Loader2, Trash2, Pencil, UserCog, ShieldAlert, Download } from "lucide-react";
 import { usersService } from "../services/usersService";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
+import { exportRowsToCsv } from "../lib/exportCsv";
 import PageHeader from "../components/common/PageHeader";
 import StatusBadge from "../components/common/StatusBadge";
 import EmptyState from "../components/common/EmptyState";
@@ -188,11 +189,14 @@ export default function UsersPage() {
   const [editUser, setEditUser] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [roleFilter, setRoleFilter] = useState("");
 
   const { data: users = [], isLoading, isError } = useQuery({
     queryKey: ["users"],
     queryFn: () => usersService.list().then((response) => response.data),
   });
+
+  const filteredUsers = roleFilter ? users.filter((listedUser) => listedUser.role === roleFilter) : users;
 
   if (currentUser?.role !== "admin") {
     return (
@@ -257,15 +261,50 @@ export default function UsersPage() {
         description={t("users.description", { total: users.length })}
         badge={String(users.length)}
         actions={
-          <button
-            onClick={handleAdd}
-            data-testid="add-user-button"
-            className="flex items-center gap-2 bg-foreground text-background text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition-opacity"
-          >
-            <Plus className="w-4 h-4" /> {t("users.inviteUser")}
-          </button>
+          <>
+            <button
+              onClick={() =>
+                exportRowsToCsv(
+                  "nexcrm-users.csv",
+                  filteredUsers.map((listedUser) => ({
+                    name: listedUser.name,
+                    email: listedUser.email,
+                    role: listedUser.role,
+                    department: listedUser.department,
+                    status: listedUser.is_active ? "active" : "inactive",
+                    lastLogin: listedUser.last_login,
+                  }))
+                )
+              }
+              className="flex items-center gap-2 bg-card border border-border text-sm font-semibold px-4 py-2 rounded-lg hover:bg-accent/70 transition-colors"
+            >
+              <Download className="w-4 h-4" /> {t("common.exportCsv")}
+            </button>
+            <button
+              onClick={handleAdd}
+              data-testid="add-user-button"
+              className="flex items-center gap-2 bg-foreground text-background text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition-opacity"
+            >
+              <Plus className="w-4 h-4" /> {t("users.inviteUser")}
+            </button>
+          </>
         }
       />
+
+      <div className="mb-5">
+        <select
+          value={roleFilter}
+          onChange={(event) => setRoleFilter(event.target.value)}
+          className="bg-muted border border-border rounded-lg text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          <option value="">{t("users.form.role")}</option>
+          {["admin", "manager", "analyst"].map((role) => (
+            <option key={role} value={role}>
+              {t(`status.${role}`)}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         {isLoading ? (
@@ -276,11 +315,11 @@ export default function UsersPage() {
           </div>
         ) : isError ? (
           <div className="py-16 text-center text-sm text-muted-foreground">{t("users.failedToLoad")}</div>
-        ) : users.length === 0 ? (
+        ) : filteredUsers.length === 0 ? (
           <EmptyState
             icon={UserCog}
-            title={t("users.noUsersYet")}
-            description={t("users.noUsersDescription")}
+            title={users.length === 0 ? t("users.noUsersYet") : t("common.noResults")}
+            description={users.length === 0 ? t("users.noUsersDescription") : t("common.noResults")}
             action={
               <button
                 onClick={handleAdd}
@@ -306,7 +345,7 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((listedUser) => (
+                {filteredUsers.map((listedUser) => (
                   <tr
                     key={listedUser.id}
                     className="border-b border-border/40 hover:bg-muted/20 transition-colors"

@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useI18n } from "../../context/I18nContext";
 import {
   LayoutDashboard, Users, Handshake, CheckSquare,
-  UserCog, BarChart3, LogOut, Zap, Menu, X,
+  UserCog, BarChart3, LogOut, Zap, Menu, X, Shield, ExternalLink, Info,
 } from "lucide-react";
 
 function NavItem({ item, onClick }) {
@@ -69,6 +69,7 @@ export default function Sidebar() {
               {t("sidebar.admin")}
             </p>
             <NavItem item={{ path: "/users", label: t("sidebar.users"), icon: UserCog }} onClick={onNavClick} />
+            <NavItem item={{ path: "/audit-logs", label: t("sidebar.auditLogs"), icon: Shield }} onClick={onNavClick} />
           </>
         )}
       </nav>
@@ -91,6 +92,25 @@ export default function Sidebar() {
           >
             <LogOut className="w-3.5 h-3.5" />
           </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mt-3 px-3">
+          <Link
+            to="/"
+            onClick={onNavClick}
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/70 transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            {t("common.backToSite")}
+          </Link>
+          <Link
+            to="/about"
+            onClick={onNavClick}
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/70 transition-colors"
+          >
+            <Info className="w-3.5 h-3.5" />
+            {t("common.learnMore")}
+          </Link>
         </div>
       </div>
     </div>

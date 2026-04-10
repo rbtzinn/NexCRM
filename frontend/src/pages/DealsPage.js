@@ -4,9 +4,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Plus, Loader2, Trash2, Pencil, LayoutGrid, List, Search } from "lucide-react";
+import { Plus, Loader2, Trash2, Pencil, LayoutGrid, List, Search, Download } from "lucide-react";
 import { dealsService } from "../services/dealsService";
 import { customersService } from "../services/customersService";
+import { exportRowsToCsv } from "../lib/exportCsv";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
 import PageHeader from "../components/common/PageHeader";
@@ -175,14 +176,18 @@ export default function DealsPage() {
   const queryClient = useQueryClient();
   const [view, setView] = useState("kanban");
   const [search, setSearch] = useState("");
+  const [stageFilter, setStageFilter] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editDeal, setEditDeal] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   const { data: dealsData, isLoading } = useQuery({
-    queryKey: ["deals", search],
-    queryFn: () => dealsService.list({ limit: 100, search: search || undefined }).then((response) => response.data),
+    queryKey: ["deals", search, stageFilter],
+    queryFn: () =>
+      dealsService
+        .list({ limit: 100, search: search || undefined, stage: stageFilter || undefined })
+        .then((response) => response.data),
   });
 
   const { data: customersData } = useQuery({
@@ -244,6 +249,24 @@ export default function DealsPage() {
         description={t("deals.description", { count: deals.length, value: (totalPipelineValue / 1000).toFixed(0) })}
         actions={
           <div className="flex items-center gap-2">
+            <button
+              onClick={() =>
+                exportRowsToCsv(
+                  "nexcrm-deals.csv",
+                  deals.map((deal) => ({
+                    title: deal.title,
+                    customer: deal.customer_name,
+                    stage: deal.stage,
+                    value: deal.value,
+                    probability: deal.probability,
+                    expectedCloseDate: deal.expected_close_date,
+                  }))
+                )
+              }
+              className="flex items-center gap-2 bg-card border border-border text-sm font-semibold px-4 py-2 rounded-lg hover:bg-accent/70 transition-colors"
+            >
+              <Download className="w-4 h-4" /> {t("common.exportCsv")}
+            </button>
             <div className="flex items-center bg-muted border border-border rounded-lg p-0.5">
               <button onClick={() => setView("kanban")} data-testid="kanban-view-btn" className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 ${view === "kanban" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
                 <LayoutGrid className="w-3.5 h-3.5" /> {t("deals.kanban")}
@@ -262,7 +285,8 @@ export default function DealsPage() {
       />
 
       <div className="mb-5">
-        <div className="relative max-w-xs">
+        <div className="flex flex-wrap gap-2">
+        <div className="relative max-w-xs flex-1 min-w-[220px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="text"
@@ -272,6 +296,19 @@ export default function DealsPage() {
             data-testid="deal-search"
             className="w-full bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
           />
+        </div>
+        <select
+          value={stageFilter}
+          onChange={(event) => setStageFilter(event.target.value)}
+          className="bg-muted border border-border rounded-lg text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          <option value="">{t("dashboard.dealsByStage")}</option>
+          {["lead", "qualified", "proposal", "negotiation", "closed_won", "closed_lost"].map((stage) => (
+            <option key={stage} value={stage}>
+              {t(`status.${stage}`)}
+            </option>
+          ))}
+        </select>
         </div>
       </div>
 

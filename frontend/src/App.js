@@ -6,6 +6,8 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { I18nProvider, useI18n } from "./context/I18nContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import AppLayout from "./components/layout/AppLayout";
+import LandingPage from "./pages/LandingPage";
+import AboutPage from "./pages/AboutPage";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import CustomersPage from "./pages/CustomersPage";
@@ -13,6 +15,8 @@ import DealsPage from "./pages/DealsPage";
 import TasksPage from "./pages/TasksPage";
 import UsersPage from "./pages/UsersPage";
 import ReportsPage from "./pages/ReportsPage";
+import SearchPage from "./pages/SearchPage";
+import AuditLogsPage from "./pages/AuditLogsPage";
 import "./App.css";
 
 const queryClient = new QueryClient({
@@ -44,21 +48,22 @@ function AppRoutes() {
   const { user } = useAuth();
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/about" element={<AboutPage />} />
       <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
       <Route
-        path="/"
         element={
           <ProtectedRoute>
             <AppLayout />
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="customers" element={<CustomersPage />} />
         <Route path="deals" element={<DealsPage />} />
         <Route path="tasks" element={<TasksPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="search" element={<SearchPage />} />
         <Route
           path="users"
           element={
@@ -67,8 +72,16 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="audit-logs"
+          element={
+            <ProtectedRoute adminOnly>
+              <AuditLogsPage />
+            </ProtectedRoute>
+          }
+        />
       </Route>
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

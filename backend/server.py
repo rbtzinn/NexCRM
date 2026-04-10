@@ -9,7 +9,7 @@ import random
 from pathlib import Path
 from collections import defaultdict, deque
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from bson import ObjectId
 from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -120,6 +120,93 @@ def hit_rate_limit(bucket_key: str, limit: int, window_seconds: int) -> Optional
         return retry_after
     bucket.append(now)
     return None
+
+
+def clean_audit_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not payload:
+        return {}
+    cleaned = {}
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if isinstance(value, ObjectId):
+            cleaned[key] = str(value)
+        elif isinstance(value, datetime):
+            cleaned[key] = value.isoformat()
+        elif isinstance(value, list):
+            cleaned[key] = [str(item) if isinstance(item, ObjectId) else item for item in value]
+        else:
+            cleaned[key] = value
+    return cleaned
+
+
+async def audit_event(
+    action: str,
+    entity_type: str,
+    actor: Optional[Dict[str, Any]] = None,
+    entity_id: Optional[str] = None,
+    entity_name: Optional[str] = None,
+    request: Optional[Request] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+):
+    now = datetime.now(timezone.utc)
+    actor = actor or {}
+    doc = {
+        "action": action,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "entity_name": entity_name,
+        "actor_id": actor.get("id"),
+        "actor_name": actor.get("name"),
+        "actor_email": actor.get("email"),
+        "actor_role": actor.get("role"),
+        "ip_address": get_request_ip(request) if request else None,
+        "metadata": clean_audit_payload(metadata),
+        "created_at": now,
+    }
+    await db.audit_logs.insert_one(doc)
+
+
+def build_search_item(item_type: str, doc: Dict[str, Any]) -> Dict[str, Any]:
+    if item_type == "customer":
+        return {
+            "id": str(doc["_id"]),
+            "type": item_type,
+            "title": doc.get("name"),
+            "subtitle": doc.get("company"),
+            "description": doc.get("email") or doc.get("phone"),
+            "status": doc.get("status"),
+            "route": "/customers",
+        }
+    if item_type == "deal":
+        return {
+            "id": str(doc["_id"]),
+            "type": item_type,
+            "title": doc.get("title"),
+            "subtitle": doc.get("customer_name"),
+            "description": f"${doc.get('value', 0):,.0f}",
+            "status": doc.get("stage"),
+            "route": "/deals",
+        }
+    if item_type == "task":
+        return {
+            "id": str(doc["_id"]),
+            "type": item_type,
+            "title": doc.get("title"),
+            "subtitle": doc.get("assignee_name"),
+            "description": doc.get("description"),
+            "status": doc.get("status"),
+            "route": "/tasks",
+        }
+    return {
+        "id": str(doc["_id"]),
+        "type": item_type,
+        "title": doc.get("name"),
+        "subtitle": doc.get("email"),
+        "description": doc.get("department"),
+        "status": doc.get("role"),
+        "route": "/users",
+    }
 
 
 # ─── Auth deps ─────────────────────────────────────────────────────────────────
@@ -328,7 +415,7 @@ async def health():
 
 # ─── AUTH ──────────────────────────────────────────────────────────────────────
 @app.post("/api/auth/login")
-async def login(req: LoginReq):
+async def login(req: LoginReq, request: Request):
     user = await db.users.find_one({"email": req.email.lower().strip()})
     if not user or not verify_pw(req.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
@@ -341,6 +428,14 @@ async def login(req: LoginReq):
     )
     u = serialize(user)
     u.pop("password_hash", None)
+    await audit_event(
+        action="login",
+        entity_type="auth",
+        actor=u,
+        entity_id=u["id"],
+        entity_name=u["name"],
+        request=request,
+    )
     return {"token": token, "user": u}
 
 
@@ -352,6 +447,91 @@ async def me(user=Depends(get_user)):
 @app.post("/api/auth/logout")
 async def logout(user=Depends(get_user)):
     return {"message": "Logged out"}
+
+
+@app.get("/api/search/global")
+async def global_search(
+    q: str = Query(..., min_length=1),
+    user=Depends(get_user),
+):
+    pattern = {"$regex": q, "$options": "i"}
+
+    customers = await db.customers.find({
+        "$or": [
+            {"name": pattern},
+            {"company": pattern},
+            {"email": pattern},
+        ]
+    }).sort("updated_at", -1).limit(5).to_list(5)
+
+    deals = await db.deals.find({
+        "$or": [
+            {"title": pattern},
+            {"customer_name": pattern},
+            {"notes": pattern},
+        ]
+    }).sort("updated_at", -1).limit(5).to_list(5)
+
+    tasks = await db.tasks.find({
+        "$or": [
+            {"title": pattern},
+            {"description": pattern},
+            {"assignee_name": pattern},
+        ]
+    }).sort("updated_at", -1).limit(5).to_list(5)
+
+    results = {
+        "customers": [build_search_item("customer", doc) for doc in customers],
+        "deals": [build_search_item("deal", doc) for doc in deals],
+        "tasks": [build_search_item("task", doc) for doc in tasks],
+    }
+
+    if user["role"] == "admin":
+        users = await db.users.find({
+            "$or": [
+                {"name": pattern},
+                {"email": pattern},
+                {"department": pattern},
+            ]
+        }).sort("created_at", -1).limit(5).to_list(5)
+        results["users"] = [build_search_item("user", doc) for doc in users]
+
+    total = sum(len(group) for group in results.values())
+    return {"query": q, "total": total, "results": results}
+
+
+@app.get("/api/audit-logs")
+async def list_audit_logs(
+    user=Depends(admin_only),
+    search: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    entity_type: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+):
+    query = {}
+    if action:
+        query["action"] = action
+    if entity_type:
+        query["entity_type"] = entity_type
+    if search:
+        query["$or"] = [
+            {"entity_name": {"$regex": search, "$options": "i"}},
+            {"actor_name": {"$regex": search, "$options": "i"}},
+            {"actor_email": {"$regex": search, "$options": "i"}},
+        ]
+
+    total = await db.audit_logs.count_documents(query)
+    skip = (page - 1) * limit
+    docs = await db.audit_logs.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+
+    return {
+        "data": serialize_list(docs),
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": max(1, (total + limit - 1) // limit),
+    }
 
 
 # ─── USERS ─────────────────────────────────────────────────────────────────────
@@ -367,7 +547,7 @@ async def list_users(user=Depends(admin_only)):
 
 
 @app.post("/api/users")
-async def create_user(body: UserCreate, user=Depends(admin_only)):
+async def create_user(body: UserCreate, request: Request, user=Depends(admin_only)):
     if await db.users.find_one({"email": body.email.lower()}):
         raise HTTPException(400, "Email already exists")
     now = datetime.now(timezone.utc)
@@ -385,6 +565,15 @@ async def create_user(body: UserCreate, user=Depends(admin_only)):
     doc["_id"] = res.inserted_id
     u = serialize(doc)
     u.pop("password_hash", None)
+    await audit_event(
+        action="create",
+        entity_type="user",
+        actor=user,
+        entity_id=u["id"],
+        entity_name=u["name"],
+        request=request,
+        metadata={"role": u["role"], "department": u.get("department")},
+    )
     return u
 
 
@@ -399,7 +588,7 @@ async def get_user_by_id(uid: str, user=Depends(admin_only)):
 
 
 @app.put("/api/users/{uid}")
-async def update_user(uid: str, body: UserUpdate, user=Depends(admin_only)):
+async def update_user(uid: str, body: UserUpdate, request: Request, user=Depends(admin_only)):
     updates = {k: v for k, v in body.dict().items() if v is not None}
     if not updates:
         raise HTTPException(400, "Nothing to update")
@@ -410,14 +599,34 @@ async def update_user(uid: str, body: UserUpdate, user=Depends(admin_only)):
     u = await db.users.find_one({"_id": oid(uid)})
     uu = serialize(u)
     uu.pop("password_hash", None)
+    await audit_event(
+        action="update",
+        entity_type="user",
+        actor=user,
+        entity_id=uu["id"],
+        entity_name=uu["name"],
+        request=request,
+        metadata=updates,
+    )
     return uu
 
 
 @app.delete("/api/users/{uid}")
-async def delete_user(uid: str, user=Depends(admin_only)):
+async def delete_user(uid: str, request: Request, user=Depends(admin_only)):
+    existing = await db.users.find_one({"_id": oid(uid)})
     res = await db.users.delete_one({"_id": oid(uid)})
     if res.deleted_count == 0:
         raise HTTPException(404, "User not found")
+    if existing:
+        await audit_event(
+            action="delete",
+            entity_type="user",
+            actor=user,
+            entity_id=uid,
+            entity_name=existing.get("name"),
+            request=request,
+            metadata={"email": existing.get("email")},
+        )
     return {"message": "User deleted"}
 
 
@@ -455,14 +664,24 @@ async def list_customers(
 
 
 @app.post("/api/customers")
-async def create_customer(body: CustomerIn, user=Depends(get_user)):
+async def create_customer(body: CustomerIn, request: Request, user=Depends(get_user)):
     if user["role"] == "analyst":
         raise HTTPException(403, "Analysts cannot create customers")
     now = datetime.now(timezone.utc)
     doc = {**body.dict(), "owner_id": user["id"], "owner_name": user["name"], "created_at": now, "updated_at": now}
     res = await db.customers.insert_one(doc)
     doc["_id"] = res.inserted_id
-    return serialize(doc)
+    serialized = serialize(doc)
+    await audit_event(
+        action="create",
+        entity_type="customer",
+        actor=user,
+        entity_id=serialized["id"],
+        entity_name=serialized["name"],
+        request=request,
+        metadata={"company": serialized["company"], "status": serialized["status"]},
+    )
+    return serialized
 
 
 @app.get("/api/customers/{cid}")
@@ -479,7 +698,7 @@ async def get_customer(cid: str, user=Depends(get_user)):
 
 
 @app.put("/api/customers/{cid}")
-async def update_customer(cid: str, body: CustomerUpdate, user=Depends(get_user)):
+async def update_customer(cid: str, body: CustomerUpdate, request: Request, user=Depends(get_user)):
     if user["role"] == "analyst":
         raise HTTPException(403, "Analysts cannot edit customers")
     updates = {k: v for k, v in body.dict().items() if v is not None}
@@ -489,14 +708,35 @@ async def update_customer(cid: str, body: CustomerUpdate, user=Depends(get_user)
     res = await db.customers.update_one({"_id": oid(cid)}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(404, "Customer not found")
-    return serialize(await db.customers.find_one({"_id": oid(cid)}))
+    customer = serialize(await db.customers.find_one({"_id": oid(cid)}))
+    await audit_event(
+        action="update",
+        entity_type="customer",
+        actor=user,
+        entity_id=customer["id"],
+        entity_name=customer["name"],
+        request=request,
+        metadata=updates,
+    )
+    return customer
 
 
 @app.delete("/api/customers/{cid}")
-async def delete_customer(cid: str, user=Depends(manager_plus)):
+async def delete_customer(cid: str, request: Request, user=Depends(manager_plus)):
+    existing = await db.customers.find_one({"_id": oid(cid)})
     res = await db.customers.delete_one({"_id": oid(cid)})
     if res.deleted_count == 0:
         raise HTTPException(404, "Customer not found")
+    if existing:
+        await audit_event(
+            action="delete",
+            entity_type="customer",
+            actor=user,
+            entity_id=cid,
+            entity_name=existing.get("name"),
+            request=request,
+            metadata={"company": existing.get("company")},
+        )
     return {"message": "Customer deleted"}
 
 
@@ -533,7 +773,7 @@ async def list_deals(
 
 
 @app.post("/api/deals")
-async def create_deal(body: DealIn, user=Depends(get_user)):
+async def create_deal(body: DealIn, request: Request, user=Depends(get_user)):
     if user["role"] == "analyst":
         raise HTTPException(403, "Analysts cannot create deals")
     customer_name = body.customer_name
@@ -551,7 +791,17 @@ async def create_deal(body: DealIn, user=Depends(get_user)):
     }
     res = await db.deals.insert_one(doc)
     doc["_id"] = res.inserted_id
-    return serialize(doc)
+    deal = serialize(doc)
+    await audit_event(
+        action="create",
+        entity_type="deal",
+        actor=user,
+        entity_id=deal["id"],
+        entity_name=deal["title"],
+        request=request,
+        metadata={"stage": deal["stage"], "value": deal["value"]},
+    )
+    return deal
 
 
 @app.get("/api/deals/{did}")
@@ -563,7 +813,7 @@ async def get_deal(did: str, user=Depends(get_user)):
 
 
 @app.put("/api/deals/{did}")
-async def update_deal(did: str, body: DealUpdate, user=Depends(get_user)):
+async def update_deal(did: str, body: DealUpdate, request: Request, user=Depends(get_user)):
     if user["role"] == "analyst":
         raise HTTPException(403, "Analysts cannot edit deals")
     updates = {k: v for k, v in body.dict().items() if v is not None}
@@ -573,14 +823,35 @@ async def update_deal(did: str, body: DealUpdate, user=Depends(get_user)):
     res = await db.deals.update_one({"_id": oid(did)}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(404, "Deal not found")
-    return serialize(await db.deals.find_one({"_id": oid(did)}))
+    deal = serialize(await db.deals.find_one({"_id": oid(did)}))
+    await audit_event(
+        action="update",
+        entity_type="deal",
+        actor=user,
+        entity_id=deal["id"],
+        entity_name=deal["title"],
+        request=request,
+        metadata=updates,
+    )
+    return deal
 
 
 @app.delete("/api/deals/{did}")
-async def delete_deal(did: str, user=Depends(manager_plus)):
+async def delete_deal(did: str, request: Request, user=Depends(manager_plus)):
+    existing = await db.deals.find_one({"_id": oid(did)})
     res = await db.deals.delete_one({"_id": oid(did)})
     if res.deleted_count == 0:
         raise HTTPException(404, "Deal not found")
+    if existing:
+        await audit_event(
+            action="delete",
+            entity_type="deal",
+            actor=user,
+            entity_id=did,
+            entity_name=existing.get("title"),
+            request=request,
+            metadata={"customer_name": existing.get("customer_name"), "value": existing.get("value")},
+        )
     return {"message": "Deal deleted"}
 
 
@@ -617,7 +888,7 @@ async def list_tasks(
 
 
 @app.post("/api/tasks")
-async def create_task(body: TaskIn, user=Depends(get_user)):
+async def create_task(body: TaskIn, request: Request, user=Depends(get_user)):
     now = datetime.now(timezone.utc)
     doc = {
         **body.dict(),
@@ -629,7 +900,17 @@ async def create_task(body: TaskIn, user=Depends(get_user)):
     }
     res = await db.tasks.insert_one(doc)
     doc["_id"] = res.inserted_id
-    return serialize(doc)
+    task = serialize(doc)
+    await audit_event(
+        action="create",
+        entity_type="task",
+        actor=user,
+        entity_id=task["id"],
+        entity_name=task["title"],
+        request=request,
+        metadata={"priority": task["priority"], "status": task["status"]},
+    )
+    return task
 
 
 @app.get("/api/tasks/{tid}")
@@ -641,7 +922,7 @@ async def get_task(tid: str, user=Depends(get_user)):
 
 
 @app.put("/api/tasks/{tid}")
-async def update_task(tid: str, body: TaskUpdate, user=Depends(get_user)):
+async def update_task(tid: str, body: TaskUpdate, request: Request, user=Depends(get_user)):
     updates = {k: v for k, v in body.dict().items() if v is not None}
     if not updates:
         raise HTTPException(400, "Nothing to update")
@@ -649,14 +930,35 @@ async def update_task(tid: str, body: TaskUpdate, user=Depends(get_user)):
     res = await db.tasks.update_one({"_id": oid(tid)}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(404, "Task not found")
-    return serialize(await db.tasks.find_one({"_id": oid(tid)}))
+    task = serialize(await db.tasks.find_one({"_id": oid(tid)}))
+    await audit_event(
+        action="update",
+        entity_type="task",
+        actor=user,
+        entity_id=task["id"],
+        entity_name=task["title"],
+        request=request,
+        metadata=updates,
+    )
+    return task
 
 
 @app.delete("/api/tasks/{tid}")
-async def delete_task(tid: str, user=Depends(get_user)):
+async def delete_task(tid: str, request: Request, user=Depends(get_user)):
+    existing = await db.tasks.find_one({"_id": oid(tid)})
     res = await db.tasks.delete_one({"_id": oid(tid)})
     if res.deleted_count == 0:
         raise HTTPException(404, "Task not found")
+    if existing:
+        await audit_event(
+            action="delete",
+            entity_type="task",
+            actor=user,
+            entity_id=tid,
+            entity_name=existing.get("title"),
+            request=request,
+            metadata={"status": existing.get("status"), "priority": existing.get("priority")},
+        )
     return {"message": "Task deleted"}
 
 
@@ -769,6 +1071,7 @@ async def recent_activity(user=Depends(get_user)):
 # ─── SEEDING ───────────────────────────────────────────────────────────────────
 async def setup_db():
     await db.users.create_index("email", unique=True)
+    await db.audit_logs.create_index("created_at")
 
     users_seed = [
         {"email": ADMIN_EMAIL, "name": "Adam Pierce", "role": "admin", "department": "Executive", "pwd": ADMIN_PWD},
